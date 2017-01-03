@@ -12,7 +12,7 @@
 //#module_name -- name of the module
 //#msg_name    -- name of the msg (what it was registered with)
 //#walltime    -- wallclock timestamp
-//#logicaltime -- logical timestamp (both event loop and invoke counts)
+//#logicaltime -- logical timestamp
 //#callback_id -- the current callback id
 //#request_id  -- the current request id (for http requests)
 //##           -- a literal #
@@ -53,7 +53,6 @@ let FormatStringEntryTag =
         CALLBACK_ID: 0x7,
         REQUEST_ID: 0x8,
         LITERAL_HASH: 0x9,
-        MAX_EXPANDO: LITERAL_HASH,
 
         BOOL_VAL: 0x100, //${p:b}
         NUMBER_VAL: 0x200, //${p:n}
@@ -117,7 +116,7 @@ let extractMsgFormat = function (fmtName, fmtString) {
                 throw "Stray '$' in argument formatter.";
             }
 
-            let numberRegex = new RegExp("\d+", 'y');
+            let numberRegex = /\d+/y;
 
             numberRegex.lastIndex = cpos + '${'.length;
             let argPositionMatch = numberRegex.exec(fmtString);
@@ -160,7 +159,7 @@ let extractMsgFormat = function (fmtName, fmtString) {
                     return { ftag: FormatStringEntryTag.ARRAY_VAL, fposition: argPosition, fstart: cpos, fend: specPos + ':a}'.length, fdepth: DEFAULT_DEPTH, flength: DEFAULT_ARRAY_LENGTH };
                 }
                 else {
-                    let dlRegex = new RegExp(":([o|a])<(\d+|*)?,(\d+|*)?>", 'y');
+                    let dlRegex = /:([o|a])<(\d+|\*)?,(\d+|\*)?>/y;
                     dlRegex.lastIndex = specPos;
 
                     let dlMatch = dlRegex.exec(fmtString);
@@ -197,36 +196,52 @@ let extractMsgFormat = function (fmtName, fmtString) {
             cpos = fmt.fend;
         }
     }
-}
 
-//Setup some standard definitions that need to be globally accessible
-module.exports.rootLogger = null; //Logger for the root module
-module.exports.enabledSubLoggerNames = new Set(); //Set of module names that are enabled for sub-logging
-module.exports.loggerMap = new Map(); //Map of the loggers created for various module names
+    return fmtArray;
+}
 
 let loggingLevels =
     {
-        LEVEL_OFF: 0x0,
-        LEVEL_FATAL: (LEVEL_OFF | 0x1),
-        LEVEL_ERROR: (LEVEL_FATAL | 0x2),
-        LEVEL_CORE: (LEVEL_ERROR | 0x4),
-        LEVEL_WARN: (LEVEL_CORE | 0x8),
-        LEVEL_INFO: (LEVEL_WARN | 0x10),
-        LEVEL_DEBUG: (LEVEL_INFO | 0x20),
-        LEVEL_TRACE: (LEVEL_DEBUG | 0x40),
-        LEVEL_ALL: (LEVEL_TRACE | 0xFF)
+        LEVEL_OFF: {name: 'OFF', enum: 0x0},
+        LEVEL_FATAL: {name: 'FATAL', enum: 0x1},
+        LEVEL_ERROR: {name: 'ERROR', enum: 0x3},
+        LEVEL_CORE: {name: 'CORE', enum: 0x7},
+        LEVEL_WARN: {name: 'WARN', enum: 0xF},
+        LEVEL_INFO: {name: 'INFO', enum: 0x1F},
+        LEVEL_DEBUG: {name: 'DEBUG', enum: 0x3F},
+        LEVEL_TRACE: {name: 'TRACE', enum: 0x7F},
+        LEVEL_ALL: {name: 'ALL', enum: 0xFF}
     };
 
-module.exports.registerLogger = function (name, ringLogLevel, outputLogLevel) {
-    if (ringLogLevel < outputLogLevel) {
+module.exports = function (name, lfilename, ringLogLevelStr, outputLogLevelStr) {
+    let ringLogLevel = loggingLevels.LEVEL_OFF;
+    let outputLogLevel = loggingLevels.LEVEL_OFF;
+    for(let p in loggingLevels) {
+        if(loggingLevels[p].name === ringLogLevelStr) {
+            ringLogLevel = loggingLevels[p];
+        }
+
+        if(loggingLevels[p].name === outputLogLevelStr) {
+            outputLogLevel = loggingLevels[p];
+        }
+    }
+
+    if (ringLogLevel.enum < outputLogLevel.enum) {
         //have to at least put it in ring buffer if we want to output it
         ringLogLevel = outputLogLevel;
     }
 
     //Get the logging function to use for a given level
-    let getLogFunctionForLevel = function (level, checklevel) {
-        return (level <= checklevel) ?
-            function (fmt, msg) { console.log(`${fmt} + ${msg} -- from ${this.module_name} level=${level}`); } :
+    let getLogFunctionForLevel = function (mname, level, checklevel) {
+        return (level.enum <= checklevel.enum) ?
+            function (fmt, msg) { console.log(`${fmt} + ${msg} -- from ${mname} level=${level.name}`); } :
+            function (fmt, msg) { ; }
+    };
+
+    //temp experiment for development/debugging
+    let getLogFunctionForLevelTrace = function (mname, level, checklevel) {
+        return (level.enum <= checklevel.enum) ?
+            nativeLogLogMsgTrace :
             function (fmt, msg) { ; }
     };
 
@@ -237,13 +252,15 @@ module.exports.registerLogger = function (name, ringLogLevel, outputLogLevel) {
             ring_level: rlevel,
             output_level: olevel,
 
-            logFatal: getLogFunctionForLevel(loggingLevels.LEVEL_FATAL, rlevel),
-            logError: getLogFunctionForLevel(loggingLevels.LEVEL_ERROR, rlevel),
-            logCore: getLogFunctionForLevel(loggingLevels.LEVEL_CORE, rlevel),
-            logWarn: getLogFunctionForLevel(loggingLevels.LEVEL_WARN, rlevel),
-            logInfo: getLogFunctionForLevel(loggingLevels.LEVEL_INFO, rlevel),
-            logDebug: getLogFunctionForLevel(loggingLevels.LEVEL_DEBUG, rlevel),
-            logTrace: getLogFunctionForLevel(loggingLevels.LEVEL_TRACE, rlevel),
+            levels: loggingLevels, //Export the logging levels for the clients
+
+            logFatal: getLogFunctionForLevel(name, loggingLevels.LEVEL_FATAL, rlevel),
+            logError: getLogFunctionForLevel(name, loggingLevels.LEVEL_ERROR, rlevel),
+            logCore: getLogFunctionForLevel(name, loggingLevels.LEVEL_CORE, rlevel),
+            logWarn: getLogFunctionForLevel(name, loggingLevels.LEVEL_WARN, rlevel),
+            logInfo: getLogFunctionForLevel(name, loggingLevels.LEVEL_INFO, rlevel),
+            logDebug: getLogFunctionForLevel(name, loggingLevels.LEVEL_DEBUG, rlevel),
+            logTrace: getLogFunctionForLevelTrace(name, loggingLevels.LEVEL_TRACE, rlevel),
 
             logSimple: function (msg) { console.log(`Direct: ${msg}`); },
 
@@ -256,8 +273,11 @@ module.exports.registerLogger = function (name, ringLogLevel, outputLogLevel) {
                     }
 
                     try {
-                        let fmtObj = extractMsgFormat(fmtName, formatObj[fmtName]);
-                        let fmtId = -1; //<----- this is where we call into the native runtime to register and get the Id
+                        let fmtArray = extractMsgFormat(fmtName, formatObj[fmtName].format);
+
+                        //invoke native registraion of msg format information
+                        let fmtId = nativeLogRegisterMsgFormat(this, formatObj[fmtName].level.enum, fmtName, formatObj[fmtName].format, fmtArray);
+                        sanityAssert(fmtId !== -1, "Failed in format operation.");
 
                         this[fmtName] = fmtId;
                     }
@@ -270,25 +290,32 @@ module.exports.registerLogger = function (name, ringLogLevel, outputLogLevel) {
         };
     };
 
-    let buildAndRegisterSubLogger = function () {
-        sanityAssert(this.rootLogger !== null, "Root should be registered first!!!");
+    let buildAndRegisterSubLogger = function (minfo) {
+        sanityAssert(minfo.rootLogger !== null, "Root should be registered first!!!");
 
-        let rlevel = this.enabledSubLoggerNames(name) ? ringLogLevel : loggingLevels.LEVEL_CORE;
-        let olevel = this.enabledSubLoggerNames(name) ? outputLogLevel : min(outputLogLevel, loggingLevels.LEVEL_FATAL);
+        let rlevel = ringLogLevel;
+        let olevel = outputLogLevel;
+        if(!minfo.enabledSubLoggerNames(name)) {
+            let rlevel = loggingLevels.LEVEL_CORE;
+            let olevel = (outputLogLevel.enum < loggingLevels.LEVEL_FATAL.enum) ? outputLogLevel : loggingLevels.LEVEL_FATAL;
+        }
 
         let logsub = initializeLoggerGeneral(rlevel, olevel);
-        logsub.loggerRoot = this.rootLogger;
+        logsub.loggerRoot = minfo.rootLogger;
 
         return logsub;
     };
 
-    let buildAndRegisterTopLevelLogger = function () {
-        sanityAssert(this.rootLogger === null, "Should only be registered once!!!");
+    let buildAndRegisterTopLevelLogger = function (minfo) {
+        sanityAssert(minfo.rootLogger === null, "Should only be registered once!!!");
+
+        //call native initialize
+        nativeLogInitialize(name, ringLogLevel.enum, outputLogLevel.enum);
 
         let logroot = initializeLoggerGeneral(ringLogLevel, outputLogLevel);
-        this.loggerMap.set(name, logroot);
+        minfo.loggerMap.set(name, logroot);
 
-        this.rootLogger = logroot;
+        minfo.rootLogger = logroot;
 
         //we have set all key things so we can do some recursive requires now
         logroot.ip_addr = require('os').hostname();
@@ -299,20 +326,25 @@ module.exports.registerLogger = function (name, ringLogLevel, outputLogLevel) {
         return logroot;
     };
 
-    let logger = this.loggerMap.get(name);
+    let logger = module.exports.loggerMap.get(name);
     if (!logger) {
-        if (require.main !== module) {
-            logger = buildAndRegisterSubLogger();
+        if (require.main.filename !== lfilename) {
+            logger = buildAndRegisterSubLogger(module.exports);
         }
         else {
-            logger = buildAndRegisterTopLevelLogger();
+            logger = buildAndRegisterTopLevelLogger(module.exports);
         }
 
-        this.loggerMap.set(name, logger);
+        module.exports.loggerMap.set(name, logger);
     }
 
     return logger;
 }
+
+//Setup some standard definitions that need to be globally accessible
+module.exports.rootLogger = null; //Logger for the root module
+module.exports.enabledSubLoggerNames = new Set(); //Set of module names that are enabled for sub-logging
+module.exports.loggerMap = new Map(); //Map of the loggers created for various module names
 
 //Add submodules which are allowed to log at higher levels (otherwise restricted to ERROR level and lower)
 module.exports.enableSubloggers = function (subloggers) {
