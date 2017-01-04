@@ -72,6 +72,11 @@ let extractMsgFormat = function (fmtName, fmtString) {
         throw 'Name and Format need to be strings.'
     }
 
+    let newlineRegex = /(\n|\r)/
+    if(newlineRegex.test(fmtString)) {
+        throw 'Format cannot contain newlines.'
+    }
+
     //helper function to extract and construct an expando format specifier
     let extractExpandoSpecifier = function () {
         if (fmtString.startsWith('##', cpos)) {
