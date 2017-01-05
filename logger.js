@@ -63,17 +63,88 @@ let FormatStringEntryTag =
         LITERAL_DOLLAR: 0x700, //$$
     };
 
-//Extract a msg format string for registering a msg format with the native logger implementation
-let extractMsgFormat = function (fmtName, fmtString) {
-    let cpos = 0;
-    let fmtArray = [];
+let expandoStringRe = /^#(ip_addr|app_name|module_name|msg_name|walltime|logicaltime|callback_id|request_id)$/; 
+let formatStringRe = /^\${(\d+):(b|n|s|o|a|g)(<(\d+|\*)?,(\d+|\*)?>)?}$/;
 
-    if (typeof (fmtName) !== 'string' || typeof (fmtString) !== 'string') {
-        throw 'Name and Format need to be strings.'
+//Extract a msg format string for registering a msg format with the native logger implementation
+//fmtInfo options are a string or an object/array literal 
+let extractMsgFormat = function (fmtName, fmtInfo) {
+    let cpos = 0;
+
+    if (typeof (fmtName) !== 'string') {
+        throw 'Name needs to be a string.'
+    }
+
+    let isSimpleObject = function (obj) {
+        if (obj === null || obj === undefined || typeof (obj) !== 'object') {
+            return false;
+        }
+
+        return (typeof (Object.getPrototypeOf(obj)) === 'object'); //not perfect but simple enough
+    }
+
+    let processArrayToJsonFormatter = function (aobj) {
+        let res = '';
+        for(let i = 0; i < aobj.length; ++i) {
+            if(i != 0) {
+                res += ', ';
+            }
+            res += expandToJsonFormatter(aobj[i]);
+        }
+        return '[' + res + ']';
+    }
+
+    let processObjToJsonFormatter = function (jobj) {
+        let res = '';
+        for(let x in jobj) {
+            if(res !== '') {
+                res += ', ';
+            }
+            res += ('"' + x + '"' + ': ' + expandToJsonFormatter(jobj[x]));
+        }
+        return '{' + res + '}';
+    }
+
+    let expandToJsonFormatter = function (jobj) {
+        if(jobj === undefined || jobj === null || jobj === true || jobj === false) {
+            return JSON.stringify(jobj);
+        }
+        else if(typeof(jobj) === 'number') {
+            return JSON.stringify(jobj);
+        }
+        else if(typeof(jobj) === 'string') {
+            if(expandoStringRe.test(jobj) || formatStringRe.test(jobj)) {
+                return jobj;
+            }
+            else {
+                return '"' + jobj + '"';
+            }
+        }
+        else if (Array.isArray(jobj)) {
+            return processArrayToJsonFormatter(jobj);
+        }
+        else if (isSimpleObject(jobj)) {
+            return processObjToJsonFormatter(jobj);
+        }
+        else {
+            return '"' + jobj.toString() + '"';
+        }
+    }
+
+    let fmtString = undefined;
+    if (typeof (fmtInfo) === 'string') {
+        fmtString = fmtInfo;
+    }
+    else {
+        if (!Array.isArray(fmtInfo) && !isSimpleObject(fmtInfo)) {
+            throw 'Format description options are string | object layout | array layout.'
+        }
+
+        fmtString = expandToJsonFormatter(fmtInfo);
     }
 
     let newlineRegex = /(\n|\r)/
-    if(newlineRegex.test(fmtString)) {
+    if (newlineRegex.test(fmtString)) {
         throw 'Format cannot contain newlines.'
     }
 
@@ -190,43 +261,44 @@ let extractMsgFormat = function (fmtName, fmtString) {
         }
     }
 
+    let fArray = [];
     while (cpos < fmtString.length) {
         if (fmtString[cpos] !== '#' && fmtString[cpos] !== '$') {
             cpos++;
         }
         else {
             let fmt = (fmtString[cpos] === '#') ? extractExpandoSpecifier() : extractArgumentFormatSpecifier();
-            fmtArray.push(fmt);
+            fArray.push(fmt);
 
             cpos = fmt.fend;
         }
     }
 
-    return fmtArray;
+    return {format: fmtString, fmtArray: fArray};
 }
 
 let loggingLevels =
     {
-        LEVEL_OFF: {name: 'OFF', enum: 0x0},
-        LEVEL_FATAL: {name: 'FATAL', enum: 0x1},
-        LEVEL_ERROR: {name: 'ERROR', enum: 0x3},
-        LEVEL_CORE: {name: 'CORE', enum: 0x7},
-        LEVEL_WARN: {name: 'WARN', enum: 0xF},
-        LEVEL_INFO: {name: 'INFO', enum: 0x1F},
-        LEVEL_DEBUG: {name: 'DEBUG', enum: 0x3F},
-        LEVEL_TRACE: {name: 'TRACE', enum: 0x7F},
-        LEVEL_ALL: {name: 'ALL', enum: 0xFF}
+        LEVEL_OFF: { name: 'OFF', enum: 0x0 },
+        LEVEL_FATAL: { name: 'FATAL', enum: 0x1 },
+        LEVEL_ERROR: { name: 'ERROR', enum: 0x3 },
+        LEVEL_CORE: { name: 'CORE', enum: 0x7 },
+        LEVEL_WARN: { name: 'WARN', enum: 0xF },
+        LEVEL_INFO: { name: 'INFO', enum: 0x1F },
+        LEVEL_DEBUG: { name: 'DEBUG', enum: 0x3F },
+        LEVEL_TRACE: { name: 'TRACE', enum: 0x7F },
+        LEVEL_ALL: { name: 'ALL', enum: 0xFF }
     };
 
 module.exports = function (name, lfilename, ringLogLevelStr, outputLogLevelStr) {
     let ringLogLevel = loggingLevels.LEVEL_OFF;
     let outputLogLevel = loggingLevels.LEVEL_OFF;
-    for(let p in loggingLevels) {
-        if(loggingLevels[p].name === ringLogLevelStr) {
+    for (let p in loggingLevels) {
+        if (loggingLevels[p].name === ringLogLevelStr) {
             ringLogLevel = loggingLevels[p];
         }
 
-        if(loggingLevels[p].name === outputLogLevelStr) {
+        if (loggingLevels[p].name === outputLogLevelStr) {
             outputLogLevel = loggingLevels[p];
         }
     }
@@ -272,16 +344,16 @@ module.exports = function (name, lfilename, ringLogLevelStr, outputLogLevelStr) 
             //Add formats in an object where the property name is the format name and the value is the format string
             addMsgFormats: function (formatObj) {
                 for (let fmtName in formatObj) {
-                    if(this[fmtName]) {
+                    if (this[fmtName]) {
                         sanityAssert(false, 'Failed, trying to re-define a msg format.');
                         return false;
                     }
 
                     try {
-                        let fmtArray = extractMsgFormat(fmtName, formatObj[fmtName].format);
+                        let processedFmtInfo = extractMsgFormat(fmtName, formatObj[fmtName].format);
 
                         //invoke native registraion of msg format information
-                        let fmtId = nativeLogRegisterMsgFormat(this, formatObj[fmtName].level.enum, fmtName, formatObj[fmtName].format, fmtArray);
+                        let fmtId = nativeLogRegisterMsgFormat(this, formatObj[fmtName].level.enum, fmtName, processedFmtInfo.format, processedFmtInfo.fmtArray);
                         sanityAssert(fmtId !== -1, "Failed in format operation.");
 
                         this[fmtName] = fmtId;
@@ -300,7 +372,7 @@ module.exports = function (name, lfilename, ringLogLevelStr, outputLogLevelStr) 
 
         let rlevel = ringLogLevel;
         let olevel = outputLogLevel;
-        if(!minfo.enabledSubLoggerNames(name)) {
+        if (!minfo.enabledSubLoggerNames(name)) {
             let rlevel = loggingLevels.LEVEL_CORE;
             let olevel = (outputLogLevel.enum < loggingLevels.LEVEL_FATAL.enum) ? outputLogLevel : loggingLevels.LEVEL_FATAL;
         }
