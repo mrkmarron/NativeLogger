@@ -28,7 +28,7 @@ function initRequest(req, res) {
     //Log the trace statement with the format given by 'requestBegin'. The request_id will be auto-populated by Node builtin 
     //module and the walltime will be 'efficiently' inserted/formatted as well. The user provides the data that goes to the 
     //${0:g} general format specifier and ${1:s} string format specifier.
-    logger.logTrace(logger.requestBegin, req.url, req.connection.remoteAddress);
+    logger.trace(logger.requestBegin, req.url, req.connection.remoteAddress);
 
     setTimeout(function(){
         completeRequest(res);
@@ -42,7 +42,7 @@ function completeRequest(res) {
     //Log the trace statement with the format given by 'requestEnd'. The request_id will be auto-populated by Node builtin 
     //module. As specified in the configuration -- the data will be placed in the in mmeory queue but unless an error occours 
     //this will not be written to the log file on disk (since the write level is WARN)
-    logger.logTrace(logger.requestEnd, 'ok');
+    logger.trace(logger.requestEnd, 'ok');
 };
 
 

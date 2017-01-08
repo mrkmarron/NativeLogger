@@ -18,10 +18,10 @@ logger.addMsgFormats({
 
 exports.printDigits = function (arg) {
     //Log the trace statement with the format given by 'callArgTrace' 
-    logger.logTrace(logger.callArgTrace, 'printDigits');
+    logger.trace(logger.callArgTrace, 'printDigits');
 
     //Log the warning message with the format 'argError' if the condition is true -- help reduce branch logic clutter
-    logger.logWarnOn(typeof(arg) !== 'number', logger.argError, 'printDigits');
+    logger.warnOn(typeof(arg) !== 'number', logger.argError, 'printDigits');
 
     /* Do stuff here... */
 };
