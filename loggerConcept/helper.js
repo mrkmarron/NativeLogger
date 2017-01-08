@@ -12,7 +12,7 @@ logger.addMsgFormats({
     //A printf style format specifier that takes a string and auto expands the module_name and walltime macros
     argError: {format: "An call argument was missing or invalid in ${0:s} in #module_name at #walltime!"},
 
-    //A printf style format specifier that takes a string and auto expands the module_name macro
+    //A printf style format specifier that takes two args formatting the first as a string ${0:s} and the second as a JSON style object
     callArgTrace: {format: "Calling function ${0:s} with ${1:g}"}
 });
 
