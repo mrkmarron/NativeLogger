@@ -17,7 +17,7 @@ logger.addMsgFormats({
     //A json format specifier that logs the start of a http request -- uses auto traced macros for current request_id and time
     //also mixes literal json constructs and nested objects/arrays.
     requestBegin: {kind: 'begin', format: {reqid: '#request_id', time: '#walltime', info: {requrl: '${0:g}', srcIp: '${1:s}'}}},
-    requestEnd: {kind: 'end', format: {reqid: '#request_id', time: '#walltime', status: '${1:s}'}}
+    requestEnd: {kind: 'end', format: {reqid: '#request_id', time: '#walltime', status: '${0:s}'}}
 });
 
 //helper is set to log at a high(er) level, TRACE, but since it loads the logger as a sub-logger 
