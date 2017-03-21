@@ -5,32 +5,9 @@
 
 //This code implements a node module that uses native runtime support to implement ultra-low overhea logging.
 
-////
-//Valid expandos are:
-//#ip_addr     -- ip address of the host
-//#app_name    -- name of the root app
-//#module_name -- name of the module
-//#msg_name    -- name of the msg (what it was registered with)
-//#walltime    -- wallclock timestamp
-//#logicaltime -- logical timestamp
-//#callback_id -- the current callback id
-//#request_id  -- the current request id (for http requests)
-//##           -- a literal #
-//
-//Valid format specifiers are:
-//${p:b} -- a boolean value
-//${p:n} -- a number
-//${p:s} -- a string
-//${p:o<d,l>} -- an object expanded up to d levels (deafult is 2) at most l items in any level (default is * for objects 128 for arrays)
-//${p:a<d,l>} -- an array expanded up to d levels (deafult is 2) at most l items in any level (default is * for objects 128 for arrays)
-//${p:g} -- general value (general format applied -- no array expansion, object depth of 2)
-//$$ -- a literal $
+'use strict';
 
-//TODO: add date, currency, and arraybuffer formatting options
-
-////
-
-'use strict'
+let process = require('process');
 
 let sanityAssert = function (cond, msg) {
     if (!cond) {
@@ -39,286 +16,54 @@ let sanityAssert = function (cond, msg) {
     }
 }
 
-//Tag values indicating the kind of each entry in the native log
-let FormatStringEntryTag =
-    {
-        Clear: 0x0,
+let s_loggingLevels = {
+    LEVEL_OFF: { name: 'OFF', enum: 0x0 },
+    LEVEL_FATAL: { name: 'FATAL', enum: 0x1 },
+    LEVEL_ERROR: { name: 'ERROR', enum: 0x3 },
+    LEVEL_CORE: { name: 'CORE', enum: 0x7 },
+    LEVEL_WARN: { name: 'WARN', enum: 0xF },
+    LEVEL_INFO: { name: 'INFO', enum: 0x1F },
+    LEVEL_DEBUG: { name: 'DEBUG', enum: 0x3F },
+    LEVEL_TRACE: { name: 'TRACE', enum: 0x7F },
+    LEVEL_ALL: { name: 'ALL', enum: 0xFF }
+};
 
-        IP_ADDR: 0x1,
-        APP_NAME: 0x2,
-        MODULE_NAME: 0x3,
-        MSG_NAME: 0x4,
-        WALLTIME: 0x5,
-        LOGICAL_TIME: 0x6,
-        CALLBACK_ID: 0x7,
-        REQUEST_ID: 0x8,
-        LITERAL_HASH: 0x9,
+/**
+ * 
+ */
 
-        BOOL_VAL: 0x100, //${p:b}
-        NUMBER_VAL: 0x200, //${p:n}
-        STRING_VAL: 0x300, //${p:s}
-        OBJECT_VAL: 0x400, //${p:o<d,l>}
-        ARRAY_VAL: 0x500, //${p:a<d,l>}
-        GENERAL_VAL: 0x600, //${p:g}
-        LITERAL_DOLLAR: 0x700, //$$
-    };
-
-let expandoStringRe = /^#(ip_addr|app_name|module_name|msg_name|walltime|logicaltime|callback_id|request_id)$/; 
-let formatStringRe = /^\${(\d+):(b|n|s|o|a|g)(<(\d+|\*)?,(\d+|\*)?>)?}$/;
-
-//Extract a msg format string for registering a msg format with the native logger implementation
-//fmtInfo options are a string or an object/array literal 
-let extractMsgFormat = function (fmtName, fmtInfo) {
-    let cpos = 0;
-
-    if (typeof (fmtName) !== 'string') {
-        throw 'Name needs to be a string.'
-    }
-
-    let isSimpleObject = function (obj) {
-        if (obj === null || obj === undefined || typeof (obj) !== 'object') {
-            return false;
-        }
-
-        return (typeof (Object.getPrototypeOf(obj)) === 'object'); //not perfect but simple enough
-    }
-
-    let processArrayToJsonFormatter = function (aobj) {
-        let res = '';
-        for(let i = 0; i < aobj.length; ++i) {
-            if(i != 0) {
-                res += ', ';
-            }
-            res += expandToJsonFormatter(aobj[i]);
-        }
-        return '[' + res + ']';
-    }
-
-    let processObjToJsonFormatter = function (jobj) {
-        let res = '';
-        for(let x in jobj) {
-            if(res !== '') {
-                res += ', ';
-            }
-            res += ('"' + x + '"' + ': ' + expandToJsonFormatter(jobj[x]));
-        }
-        return '{' + res + '}';
-    }
-
-    let expandToJsonFormatter = function (jobj) {
-        if(jobj === undefined || jobj === null || jobj === true || jobj === false) {
-            return JSON.stringify(jobj);
-        }
-        else if(typeof(jobj) === 'number') {
-            return JSON.stringify(jobj);
-        }
-        else if(typeof(jobj) === 'string') {
-            if(expandoStringRe.test(jobj) || formatStringRe.test(jobj)) {
-                return jobj;
-            }
-            else {
-                return '"' + jobj + '"';
-            }
-        }
-        else if (Array.isArray(jobj)) {
-            return processArrayToJsonFormatter(jobj);
-        }
-        else if (isSimpleObject(jobj)) {
-            return processObjToJsonFormatter(jobj);
-        }
-        else {
-            return '"' + jobj.toString() + '"';
-        }
-    }
-
-    let fmtString = undefined;
-    if (typeof (fmtInfo) === 'string') {
-        fmtString = fmtInfo;
-    }
-    else {
-        if (!Array.isArray(fmtInfo) && !isSimpleObject(fmtInfo)) {
-            throw 'Format description options are string | object layout | array layout.'
-        }
-
-        fmtString = expandToJsonFormatter(fmtInfo);
-    }
-
-    let newlineRegex = /(\n|\r)/
-    if (newlineRegex.test(fmtString)) {
-        throw 'Format cannot contain newlines.'
-    }
-
-    //helper function to extract and construct an expando format specifier
-    let extractExpandoSpecifier = function () {
-        if (fmtString.startsWith('##', cpos)) {
-            return { ftag: FormatStringEntryTag.LITERAL_HASH, fposition: -1, fstart: cpos, fend: cpos + '##'.length };
-        }
-        else if (fmtString.startsWith('#ip_addr', cpos)) {
-            return { ftag: FormatStringEntryTag.IP_ADDR, fposition: -1, fstart: cpos, fend: cpos + '#ip_addr'.length };
-        }
-        else if (fmtString.startsWith('#app_name', cpos)) {
-            return { ftag: FormatStringEntryTag.APP_NAME, fposition: -1, fstart: cpos, fend: cpos + '#app_name'.length };
-        }
-        else if (fmtString.startsWith('#module_name', cpos)) {
-            return { ftag: FormatStringEntryTag.MODULE_NAME, fposition: -1, fstart: cpos, fend: cpos + '#module_name'.length };
-        }
-        else if (fmtString.startsWith('#msg_name', cpos)) {
-            return { ftag: FormatStringEntryTag.MSG_NAME, fposition: -1, fstart: cpos, fend: cpos + '#msg_name'.length };
-        }
-        else if (fmtString.startsWith('#walltime', cpos)) {
-            return { ftag: FormatStringEntryTag.WALLTIME, fposition: -1, fstart: cpos, fend: cpos + '#walltime'.length };
-        }
-        else if (fmtString.startsWith('#logicaltime', cpos)) {
-            return { ftag: FormatStringEntryTag.LOGICAL_TIME, fposition: -1, fstart: cpos, fend: cpos + '#logicaltime'.length };
-        }
-        else if (fmtString.startsWith('#callback_id', cpos)) {
-            return { ftag: FormatStringEntryTag.CALLBACK_ID, fposition: -1, fstart: cpos, fend: cpos + '#callback_id'.length };
-        }
-        else if (fmtString.startsWith('#request_id', cpos)) {
-            return { ftag: FormatStringEntryTag.REQUEST_ID, fposition: -1, fstart: cpos, fend: cpos + '#request_id'.length };
-        }
-        else {
-            throw "Bad match in expando format string.";
-        }
-    }
-
-    //helper function to extract and construct an argument format specifier
-    let extractArgumentFormatSpecifier = function () {
-        if (fmtString.startsWith('$$', cpos)) {
-            return { ftag: FormatStringEntryTag.LITERAL_DOLLAR, fposition: -1, fstart: cpos, fend: cpos + '$$'.length };
-        }
-        else {
-            if (!fmtString.startsWith('${', cpos)) {
-                throw "Stray '$' in argument formatter.";
-            }
-
-            let numberRegex = /\d+/y;
-
-            numberRegex.lastIndex = cpos + '${'.length;
-            let argPositionMatch = numberRegex.exec(fmtString);
-            if (!argPositionMatch) {
-                throw "Bad position specifier in format."
-            }
-
-            let argPosition = Number.parseInt(argPositionMatch[0]);
-            if (argPosition < 0) {
-                throw "Bad position specifier in format."
-            }
-
-            let specPos = cpos + '${'.length + argPositionMatch[0].length;
-            if (fmtString.startsWith(':b}', specPos)) {
-                return { ftag: FormatStringEntryTag.BOOL_VAL, fposition: argPosition, fstart: cpos, fend: specPos + ':b}'.length };
-            }
-            else if (fmtString.startsWith(':n}', specPos)) {
-                return { ftag: FormatStringEntryTag.NUMBER_VAL, fposition: argPosition, fstart: cpos, fend: specPos + ':n}'.length };
-            }
-            else if (fmtString.startsWith(':s}', specPos)) {
-                return { ftag: FormatStringEntryTag.STRING_VAL, fposition: argPosition, fstart: cpos, fend: specPos + ':s}'.length };
-            }
-            else if (fmtString.startsWith(':g}', specPos)) {
-                return { ftag: FormatStringEntryTag.GENERAL_VAL, fposition: argPosition, fstart: cpos, fend: specPos + ':g}'.length };
-            }
-            else {
-                if (!fmtString.startsWith(':o', specPos) && !fmtString.startsWith(':a', specPos)) {
-                    throw "Bad match in argument format string.";
-                }
-
-                let DEFAULT_DEPTH = 2;
-                let DEFAULT_OBJECT_LENGTH = 1024;
-                let DEFAULT_ARRAY_LENGTH = 128;
-                let DL_STAR = 1073741824;
-
-                if (fmtString.startsWith(':o}', specPos)) {
-                    return { ftag: FormatStringEntryTag.OBJECT_VAL, fposition: argPosition, fstart: cpos, fend: specPos + ':o}'.length, fdepth: DEFAULT_DEPTH, flength: DEFAULT_OBJECT_LENGTH };
-                }
-                else if (fmtString.startsWith(':a}', specPos)) {
-                    return { ftag: FormatStringEntryTag.ARRAY_VAL, fposition: argPosition, fstart: cpos, fend: specPos + ':a}'.length, fdepth: DEFAULT_DEPTH, flength: DEFAULT_ARRAY_LENGTH };
-                }
-                else {
-                    let dlRegex = /:([o|a])<(\d+|\*)?,(\d+|\*)?>/y;
-                    dlRegex.lastIndex = specPos;
-
-                    let dlMatch = dlRegex.exec(fmtString);
-                    if (!dlMatch) {
-                        throw "Bad position specifier in format."
-                    }
-
-                    let ttag = (dlMatch[1] === ':o') ? FormatStringEntryTag.OBJECT_VAL : FormatStringEntryTag.ARRAY_VAL;
-                    let tdepth = DEFAULT_DEPTH;
-                    let tlength = (dlMatch[1] === ':o') ? DEFAULT_OBJECT_LENGTH : DEFAULT_ARRAY_LENGTH;
-
-                    if (dlMatch[2] !== '') {
-                        tdepth = (dlMatch[2] !== '*') ? Number.parseInt(dlMatch[2]) : DL_STAR;
-                    }
-
-                    if (dlMatch[3] !== '') {
-                        tlength = (dlMatch[3] !== '*') ? Number.parseInt(dlMatch[3]) : DL_STAR;
-                    }
-
-                    return { ftag: ttag, fposition: argPosition, fstart: cpos, fend: specPos + dlMatch[0].length, fdepth: tdepth, flength: tlength };
-                }
-            }
-        }
-    }
-
-    let fArray = [];
-    while (cpos < fmtString.length) {
-        if (fmtString[cpos] !== '#' && fmtString[cpos] !== '$') {
-            cpos++;
-        }
-        else {
-            let fmt = (fmtString[cpos] === '#') ? extractExpandoSpecifier() : extractArgumentFormatSpecifier();
-            fArray.push(fmt);
-
-            cpos = fmt.fend;
-        }
-    }
-
-    return {format: fmtString, fmtArray: fArray};
-}
-
-let loggingLevels =
-    {
-        LEVEL_OFF: { name: 'OFF', enum: 0x0 },
-        LEVEL_FATAL: { name: 'FATAL', enum: 0x1 },
-        LEVEL_ERROR: { name: 'ERROR', enum: 0x3 },
-        LEVEL_CORE: { name: 'CORE', enum: 0x7 },
-        LEVEL_WARN: { name: 'WARN', enum: 0xF },
-        LEVEL_INFO: { name: 'INFO', enum: 0x1F },
-        LEVEL_DEBUG: { name: 'DEBUG', enum: 0x3F },
-        LEVEL_TRACE: { name: 'TRACE', enum: 0x7F },
-        LEVEL_ALL: { name: 'ALL', enum: 0xFF }
-    };
-
-module.exports = function (name, lfilename, ringLogLevelStr, outputLogLevelStr) {
-    let ringLogLevel = loggingLevels.LEVEL_OFF;
-    let outputLogLevel = loggingLevels.LEVEL_OFF;
+/**
+ * Logger constructor function.
+ * @exports
+ * @function
+ * @param {string} name of the logger object to construct (calls with the same name will return an aliased logger object)
+ * @param {string} lfilename is the '__filename' of the src file this logger is being loaded in.
+ * @param {string} ringLogLevelStr is the level to log into the high performance rung buffer
+ * @param {string} outputLogLevelStr is the level to log out to to stable storage
+ * @param {*} logSink is the flag/file to write the log contents into undefined -> stdout, string -> file
+ */
+module.exports = function (name, lfilename, ringLogLevelStr, outputLogLevelStr, logSink) {
+    let m_ringLogLevel = loggingLevels.LEVEL_OFF;
+    let m_outputLogLevel = loggingLevels.LEVEL_OFF;
     for (let p in loggingLevels) {
         if (loggingLevels[p].name === ringLogLevelStr) {
-            ringLogLevel = loggingLevels[p];
+            m_ringLogLevel = loggingLevels[p];
         }
 
         if (loggingLevels[p].name === outputLogLevelStr) {
-            outputLogLevel = loggingLevels[p];
+            m_outputLogLevel = loggingLevels[p];
         }
     }
 
-    if (ringLogLevel.enum < outputLogLevel.enum) {
+    if (m_ringLogLevel.enum < m_outputLogLevel.enum) {
         //have to at least put it in ring buffer if we want to output it
-        ringLogLevel = outputLogLevel;
+        m_ringLogLevel = m_outputLogLevel;
     }
 
     //Get the logging function to use for a given level
     let getLogFunctionForLevel = function (mname, level, checklevel) {
         return (level.enum <= checklevel.enum) ?
             function (fmt, msg) { console.log(`${fmt} + ${msg} -- from ${mname} level=${level.name}`); } :
-            function (fmt, msg) { ; }
-    };
-
-    //temp experiment for development/debugging
-    let getLogFunctionForLevelTrace = function (mname, level, checklevel) {
-        return (level.enum <= checklevel.enum) ?
-            nativeLogLogMsgTrace :
             function (fmt, msg) { ; }
     };
 
