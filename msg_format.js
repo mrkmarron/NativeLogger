@@ -177,6 +177,10 @@ let s_compoundFormatStringRe = new RegExp('^\\${(\\d+):('
         .join('|')
     + ')(<(\\d+|\\*)?,(\\d+|\\*)?>}$');
 
+function isSingleSlotFormatter(formatTag) {
+    return formatTag.enum <= FormatStringEntryTag.STRING_VAL.enum;
+}
+
 /**
  * Construct a msgFormat entry for an expando.
  * @function
@@ -365,9 +369,10 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
  * @param {string} fmtString the format string 
  * @param {number} maxArgPos the largest argument index used in the format message
  * @param {Array} fmtEntryArray the array of msgFormat entries (expandos and format strings) used
+ * @param {boolean} allSingleSlotFormatters true if all the formatter entries are single slot
  */
-function msgFormat_Create(fmtName, fmtString, maxArgPos, fmtEntryArray) {
-    return { formatName: fmtName, formatString: fmtString, maxArgPosition: maxArgPos, formatterArray: fmtEntryArray };
+function msgFormat_Create(fmtName, fmtString, maxArgPos, fmtEntryArray, areAllSingleSlotFormatters) {
+    return { formatName: fmtName, formatString: fmtString, maxArgPosition: maxArgPos, formatterArray: fmtEntryArray, allSingleSlotFormatters: areAllSingleSlotFormatters };
 }
 
 /**
@@ -378,7 +383,7 @@ function msgFormat_Create(fmtName, fmtString, maxArgPos, fmtEntryArray) {
  * @throws If the format is ill-defined we throw an error.
  * @returns {Object} The format structure object 
  */
-exports.extractMsgFormat = function (fmtName, fmtInfo) {
+function extractMsgFormat(fmtName, fmtInfo) {
     let cpos = 0;
 
     if (typeof (fmtName) !== 'string') {
@@ -422,7 +427,11 @@ exports.extractMsgFormat = function (fmtName, fmtInfo) {
         }
     }
 
-    return msgFormat_Create(fmtName, fmtString, maxArgPos, fArray);
+    let allBasicFormatters = fArray.every(function(value) {
+        return isSingleSlotFormatter(value);
+    });
+
+    return msgFormat_Create(fmtName, fmtString, maxArgPos, fArray, allBasicFormatters);
 }
 
 /////////////////////////////
@@ -868,12 +877,11 @@ function logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, args) {
 }
 
 /**
- * Log a message into the logger -- when there are no additional arguments (we just pass them to keep the signature the same)
+ * Log a message into the logger -- when there are no additional arguments
  * @function
  * @param {Object} blockList the blocklist to emit into
  * @param {Object} macroInfo the info on logger state that the expandos use
  * @param {Object} fmt the message format
- * @param {Array} args the array of arguments
  */
 function logMessageConstantString(blockList, macroInfo, level, fmt, args) {
     msgBlock_EnsureDataSlots(blockList, 3);
@@ -882,5 +890,27 @@ function logMessageConstantString(blockList, macroInfo, level, fmt, args) {
     msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, LogEntryTags.MsgEndSentinal);
 }
 
+/**
+ * The main function for logging a message to the block list.
+ * @function
+ * @param {Object} blockList the blocklist to emit into
+ * @param {Object} macroInfo the info on logger state that the expandos use
+ * @param {Object} fmt the message format
+ * @param {Array} args the array of arguments
+ */
+function logMsg(blockList, macroInfo, level, fmt, args) {
+    if(fmt.formatterArray.length === 0) {
+        logMessageConstantString(blockList, macroInfo, level, fmt);
+    }
+    else if(fmt.allSingleSlotFormatters) {
+        logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, args);
+    }
+    else {
+        logMessageGeneral(blockList, macroInfo, level, fmt, args);
+    }
+}
+
 /////////////////////////////
 //Code for filtering the in memory representation for writing out
+
+
