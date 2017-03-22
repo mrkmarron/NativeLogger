@@ -881,3 +881,6 @@ function logMessageConstantString(blockList, macroInfo, level, fmt, args) {
     msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgLevel, level);
     msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, LogEntryTags.MsgEndSentinal);
 }
+
+/////////////////////////////
+//Code for filtering the in memory representation for writing out
