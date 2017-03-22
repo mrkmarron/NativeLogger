@@ -56,61 +56,107 @@ exports.SystemInfoLevels = {
     ALL: { label: 'ALL', enum: 0xF00 }
 };
 
+//Default values we expand objects and arrays to
+let DEFAULT_EXPAND_DEPTH = 2;
+let DEFAULT_EXPAND_OBJECT_LENGTH = 1024;
+let DEFAULT_EXPAND_ARRAY_LENGTH = 128;
+
 /////////////////////////////
 //Generally useful code
 
-/**
-* Check if an object is a nice literal object (more or less) 
-* @function
-* @param {*} arg 
-* @return {boolean} 
-*/
-function isSimpleObject(arg) {
-    if (arg === null || arg === undefined || typeof (arg) !== 'object') {
-        return false;
-    }
+function typeGetName(value) {
+    return toString.call(value);
+}
 
-    return (typeof (Object.getPrototypeOf(arg)) === 'object'); //not perfect but simple enough
+function typeIsSimple(typename) {
+    return (typename === '[object Undefined]' || typename === '[object Null]');
+}
+
+function typeIsBoolean(typename) {
+    return (typename === '[object Boolean]');
+}
+
+function typeIsNumber(typename) {
+    return (typename === '[object Number]');
+}
+
+function typeIsString(typename) {
+    return (typename === '[object String]');
+}
+
+function typeIsDate(typename) {
+    return (typename === '[object Date]');
+}
+
+function typeIsFunction(typename) {
+    return (typename === '[object Function]');
+}
+
+function typeIsObject(typename) {
+    return (typename === '[object Object]');
+}
+
+function typeIsArray(typename) {
+    return (typename === '[object Array]' ||
+        typename === '[object Float32Array]' || typename === '[object Float64Array]' ||
+        typename === '[object Int8Array]' || typename === '[object Int16Array]' || typename === '[object Int32Array]' ||
+        typename === '[object Uint8Array]' || typename === '[object Uint16Array]' || typename === '[object Uint32Array]');
 }
 
 /////////////////////////////
 //Code for manipulating message format representations
 
+function fse_generateLiteralEntry(name, label, enumval) {
+    return { name: name, label: label, kind: 'literal', enum: enumval };
+}
+
+function fse_generateExpandoEntry(name, label, enumval) {
+    return { name: name, label: label, kind: 'expando', enum: enumval };
+}
+
+function fse_generateBasicFormatterEntry(name, label, enumval) {
+    return { name: name, label: label, kind: 'basicFormat', enum: enumval };
+}
+
+function fse_generateCompundFormatterEntry(name, label, enumval) {
+    return { name: name, label: label, kind: 'compundFormat', enum: enumval };
+}
+
 /**
  * Tag values indicating the kind of each entry in the native log.
  */
-FormatStringEntryTag = {
-    Clear: { label: 'clear', enum: 0x0 },
+let FormatStringEntryTag = {
+    LITERAL_HASH: fse_generateLiteralEntry('LITERAL_HASH', '#', 0x1),
+    IP_ADDR: fse_generateExpandoEntry('IP_ADDR', '#ip_addr', 0x2),
+    APP_NAME: fse_generateExpandoEntry('APP_NAME', '#app_name', 0x3),
+    MODULE_NAME: se_generateExpandoEntry('MODULE_NAME', '#module_name', 0x4),
+    MSG_NAME: fse_generateExpandoEntry('MSG_NAME', '#msg_name', 0x5),
+    WALLTIME: fse_generateExpandoEntry('WALL_TIME', '#wall_time', 0x6),
+    LOGICAL_TIME: fse_generateExpandoEntry('LOGICAL_TIME', '#logical_time', 0x7),
+    CALLBACK_ID: fse_generateExpandoEntry('CALLBACK_ID', '#callback_id', 0x8),
+    REQUEST_ID: fse_generateExpandoEntry('REQUEST_ID', '#request_id', 0x9),
 
-    LITERAL_HASH: { label: '#', enum: 0x2 },
-    IP_ADDR: { label: '#ip_addr', enum: 0x3 },
-    APP_NAME: { label: '#app_name', enum: 0x4 },
-    MODULE_NAME: { label: '#module_name', enum: 0x5 },
-    MSG_NAME: { label: '#msg_name', enum: 0x6 },
-    WALLTIME: { label: '#wall_time', enum: 0x7 },
-    LOGICAL_TIME: { label: '#logical_time', enum: 0x8 },
-    CALLBACK_ID: { label: '#callback_id', enum: 0x9 },
-    REQUEST_ID: { label: '#request_id', enum: 0xa },
-
-    LITERAL_DOLLAR: { label: '$', enum: 0x200 }, //$$
-    BOOL_VAL: { label: 'b', enum: 0x300 }, //${p:b}
-    NUMBER_VAL: { label: 'n', enum: 0x400 }, //${p:n}
-    STRING_VAL: { label: 's', enum: 0x500 }, //${p:s}
-    GENERAL_VAL: { label: 'g', enum: 0x600 }, //${p:g}
-    OBJECT_VAL: { label: 'o', enum: 0x700 }, //${p:o<d,l>}
-    ARRAY_VAL: { label: 'a', enum: 0x800 }, //${p:a<d,l>}
+    LITERAL_DOLLAR: fse_generateLiteralEntry('LITERAL_DOLLAR', '$', 0x10),
+    BOOL_VAL: fse_generateBasicFormatterEntry('BOOL_VAL', 'b', 0x20), //${p:b}
+    NUMBER_VAL: fse_generateBasicFormatterEntry('NUMBER_VAL', 'n', 0x30), //${p:n}
+    STRING_VAL: fse_generateBasicFormatterEntry('STRING_VAL', 's', 0x40), //${p:s}
+    GENERAL_VAL: fse_generateBasicFormatterEntry('GENERAL_VAL', 'g', 0x50), //${p:g}
+    OBJECT_VAL: fse_generateCompundFormatterEntry('OBJECT_VAL', 'o', 0x60), //${p:o<d,l>}
+    ARRAY_VAL: fse_generateCompundFormatterEntry('ARRAY_VAL', 'a', 0x70) //${p:a<d,l>}
 };
+let ClearFormatStringEntryTag = 0x0;
+let FormatStringEntryTag_Mask = 0xFF;
 
 let s_expandoEntries = Object.keys(FormatStringEntryTag)
-    .filter(function (value) { return FormatStringEntryTag.IP_ADDR.enum <= value.enum && value.enum <= FormatStringEntryTag.REQUEST_ID.enum; })
+    .filter(function (value) { return value.kind === 'expando'; })
     .map(function (value) { return FormatStringEntryTag[value]; });
 
 let s_basicFormatEntries = Object.keys(FormatStringEntryTag)
-    .filter(function (value) { return FormatStringEntryTag.BOOL_VAL.enum <= value.enum && value.enum <= FormatStringEntryTag.GENERAL_VAL.enum; })
+    .filter(function (value) { return value.kind === 'basicFormat'; })
     .map(function (value) { return FormatStringEntryTag[value]; });
 
 let s_compoundFormatEntries = Object.keys(FormatStringEntryTag)
-    .filter(function (value) { return FormatStringEntryTag.OBJECT_VAL.enum <= value.enum && value.enum < FormatStringEntryTag.ARRAY_VAL.enum; })
+    .filter(function (value) { return value.kind === 'compundFormat'; })
     .map(function (value) { return FormatStringEntryTag[value].label; });
 
 let s_expandoStringRe = new RegExp('^('
@@ -175,13 +221,12 @@ function msgFormat_CreateCompundFormatter(formatTag, argListPosition, formatStri
  * @return {string}
  */
 function msgFormat_expandToJsonFormatter(jobj) {
-    if (jobj === undefined || jobj === null || jobj === true || jobj === false) {
+    let typename = typeGetName(jobj);
+
+    if (typeIsSimple(typename) || typeIsNumber(typename)) {
         return JSON.stringify(jobj);
     }
-    else if (typeof (jobj) === 'number') {
-        return JSON.stringify(jobj);
-    }
-    else if (typeof (jobj) === 'string') {
+    else if (typeIsString(typename)) {
         if (s_expandoStringRe.test(jobj) || s_basicFormatStringRe.test(jobj) || s_compoundFormatStringRe.test(jobj)) {
             return jobj;
         }
@@ -189,14 +234,14 @@ function msgFormat_expandToJsonFormatter(jobj) {
             return '"' + jobj + '"';
         }
     }
-    else if (Array.isArray(jobj)) {
+    else if (typeIsArray(typename)) {
         return '[ '
             + jobj
                 .map(function (value) { return msgFormat_expandToJsonFormatter(value); })
                 .join(', ')
             + ' ]';
     }
-    else if (isSimpleObject(jobj)) {
+    else if (typeIsObject(typename)) {
         return '{ '
             + Object.keys(jobj)
                 .map(function (key) { return '"' + key + '"' + ': ' + msgFormat_expandToJsonFormatter(jobj[key]); })
@@ -277,9 +322,6 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
             return msgFormat_CreateBasicFormatter(basicFormatOption, argPosition, vpos, fendpos);
         }
         else {
-            let DEFAULT_DEPTH = 2;
-            let DEFAULT_OBJECT_LENGTH = 1024;
-            let DEFAULT_ARRAY_LENGTH = 128;
             let DL_STAR = 1073741824;
 
             if (fmtString.startsWith('o}', specPos)) {
@@ -348,7 +390,8 @@ exports.extractMsgFormat = function (fmtName, fmtInfo) {
         fmtString = fmtInfo;
     }
     else {
-        if (!Array.isArray(fmtInfo) && !isSimpleObject(fmtInfo)) {
+        let typename = typeGetName(fmtInfo);
+        if (!typeIsArray(typeGetName) && !typeIsObject(typename)) {
             throw new Error('Format description options are string | object layout | array layout.');
         }
 
@@ -390,28 +433,27 @@ exports.extractMsgFormat = function (fmtName, fmtInfo) {
  */
 let LogEntryTags = {
     Clear: 0x0,
-    
-    MsgFormat: 0x10,     //The var is pointer to the formatInfo object
-    MsgLevel: 0x20,      //The var is a tagged int of a logger level
-    LParen: 0x30,
-    RParen: 0x40,
-    LBrack: 0x50,
-    RBrack: 0x60,
-    PropertyRecord: 0x70,  //The entry contains a property record
 
-    JsBadFormatVar: 0x100, //The var is undefined due to an argument that did not match the format specifier
-    JsVarValue: 0x200,     //The var is a regular value 
+    MsgFormat: 0x100,     //The var is pointer to the formatInfo object
+    MsgLevel: 0x200,      //The var is a tagged int of a logger level
+    MsgEndSentinal: 0x300, //Sentinal marking the end of a log message
 
-    LengthBoundHit: 0x300,
-    FormatErrorHit: 0x400,
+    LParen: 0x400,
+    RParen: 0x500,
+    LBrack: 0x600,
+    RBrack: 0x700,
+    PropertyRecord: 0x800,  //The entry contains a property record
 
-    CycleValue: 0x500,
-    OpaqueValue: 0x600,
-    OpaqueObject: 0x700,
-    OpaqueArray: 0x800,
+    JsBadFormatVar: 0x1000, //The var is undefined due to an argument that did not match the format specifier
+    JsVarValue: 0x2000,     //The var is a regular value 
 
-    Max: 0x1000
+    LengthBoundHit: 0x3000,
+    CycleValue: 0x4000,
+    OpaqueValue: 0x5000,
+    OpaqueObject: 0x6000,
+    OpaqueArray: 0x7000
 };
+let LogEntryTags_Mask = 0xFF00;
 
 /**
  * When we are emitting we can be in multiple modes (formatting, objects, arrays, etc.) so we want tags (used below to indicate)
@@ -439,7 +481,7 @@ function msgBlock_Create(previousBlock) {
         count: 0,
 
         //arrays holding the tag and entry data 
-        tags: new Uint8Array(s_msgBlockSize),
+        tags: new Uint16Array(s_msgBlockSize),
         data: new Array(s_msgBlockSize),
 
         //DLL next/previous
@@ -458,7 +500,7 @@ function msgBlock_Create(previousBlock) {
  * A helper function to create a blocklist
  */
 function msgBlock_CreateBlockList() {
-    let iblock = createMsgBlock(null);
+    let iblock = msgBlock_Create(null);
 
     return {
         head: iblock,
@@ -471,136 +513,371 @@ function msgBlock_CreateBlockList() {
  * A helper ensure we can write several entries to a block without allocating
  */
 function msgBlock_EnsureDataSlots(blockList, size) {
-    if (blockList.tail.count + size >= s_msgBlockSize) {
-        let nblock = createMsgBlock(block);
-        blockList.tail = nblock;
+    let block = blockList.tail;
+    if (block.count + size >= s_msgBlockSize) {
+        let block = msgBlock_Create(block);
+        blockList.tail = block;
     }
+}
+
+/**
+ * A helper function to add an entry to a block list
+ */
+function msgBlock_AddEntryToMsgBlock_Unchecked(blockList, tag, data) {
+    //TODO: remove this later but we want it for initial debugging
+    assert(blockList.tail.count < s_msgBlockSize, 'We missed a ensure size or got the computation wrong');
+
+    let block = blockList.tail;
+    block.tags[block.count] = tag;
+    block.data[block.count] = data;
+    block.count++;
+}
+
+function msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, tag) {
+    //TODO: remove this later but we want it for initial debugging
+    assert(blockList.tail.count < s_msgBlockSize, 'We missed a ensure size or got the computation wrong');
+
+    let block = blockList.tail;
+    block.tags[block.count] = tag;
+    block.count++;
 }
 
 /**
  * A helper function to add an entry to a block list
  */
 function msgBlock_AddEntryToMsgBlock(blockList, tag, data) {
-    if (blockList.tail.count === s_msgBlockSize) {
-        let nblock = createMsgBlock(block);
-        blockList.tail = nblock;
+    let block = blockList.tail;
+    if (block.count === s_msgBlockSize) {
+        block = msgBlock_Create(block);
+        blockList.tail = block;
     }
 
-    let block = blockList.tail;
     block.tags[block.count] = tag;
     block.data[block.count] = data;
     block.count++;
 }
 
-/**
- * A helper function to add an entry to a block list
- */
-function msgBlock_AddEntryToMsgBlockUnchecked(blockList, tag, data) {
+function msgBlock_AddEntryToMsgBlockTagOnly(blockList, tag) {
     let block = blockList.tail;
+    if (block.count === s_msgBlockSize) {
+        block = msgBlock_Create(block);
+        blockList.tail = block;
+    }
+
     block.tags[block.count] = tag;
-    block.data[block.count] = data;
     block.count++;
 }
 
 /**
- * Log a message into the logger -- throw if we have any formatting style errors
+ * A helper function for storing formatted objects into our log
  */
-exports.LogMessage = function (blockList, macroInfo, level, fmt, argc, args) {
-    ensureDataSlots(blockList, 3);
-    addEntryToMsgBlockUnchecked(blockList, LogEntryTags.FormattedMsg, undefined);
-    addEntryToMsgBlockUnchecked(blockList, LogEntryTags.MsgFormat, fmt);
-    addEntryToMsgBlockUnchecked(blockList, LogEntryTags.MsgLevel, level);
+function msgBlock_addObject_Internal(blockList, msgTag, obj, depth, length) {
+    //if the value is in the set and is currently processing (value is TRUE)
+    if (blockList.jsonCycleMap.has(obj)) {
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.CycleValue);
+        return;
+    }
 
-    try {
-        for (let i = 0; i < fmt.formatterArray.length; ++i) {
-            assert(blockList.jsonCycleMap.size === 0, "Should always be emptied after processing an object/array.");
+    if (depth == 0) {
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.OpaqueObject);
+    }
+    else {
+        //Set processing as true for cycle detection
+        blockList.jsonCycleMap.add(obj);
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.LParen);
 
-            let fentry = fmt.formatterArray[i];
+        let allowedLengthRemain = length;
+        for (let p in obj) {
+            msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.PropertyRecord, p);
+            msgBlock_AddGeneralValue_Internal(blockList, ClearFormatStringEntryTag, obj[p], depth - 1);
 
-asdf---
-
-            let value = (fentry.fposition !== -1 && fentry.fposition < argc) ? args[fentry.fposition] : undefined;
-
-            switch (fentry.ftag) {
-                case FormatStringEntryTag.IP_ADDR:
-                asdf;
+            allowedLengthRemain--;
+            if (allowedLengthRemain <= 0) {
+                msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.LengthBoundHit);
                 break;
-                case FormatStringEntryTag.APP_NAME:
-                asdf;
-                break;
-                case FormatStringEntryTag.MODULE_NAME:
-                addEntryToMsgBlock(blockList, fentry.ftag, macroInfo[fentry.ftag]);
-                break;
-                case FormatStringEntryTag::MSG_NAME:
-
-                    this ->AddArg(LogEntryTag::JsVarValue, name, Js::JavascriptOperators::GetTypeId(name));
-
-                    break;
-
-                case FormatStringEntryTag::WALLTIME:
-
-                    this ->AddLogArgFromDouble(LogEntryTag::JsVarValue, this ->m_timer.Now(), ctx);
-
-                    break;
-
-                case FormatStringEntryTag::LOGICAL_TIME:
-
-                    this ->AddLogArgFromUInt64(LogEntryTag::JsVarValue, this ->m_logicalTime, ctx);
-
-                    break;
-
-                case FormatStringEntryTag::CALLBACK_ID:
-
-                    this ->AddLogArgFromRootInfoObj(loggerInfoObj, _u("callback_id"));
-
-                    break;
-
-                case FormatStringEntryTag::REQUEST_ID:
-
-                    this ->AddLogArgFromRootInfoObj(loggerInfoObj, _u("request_id"));
-
-                    break;
-
-                case FormatStringEntryTag::BOOL_VAL:
-
-                    fmtok &= this ->AddLogArgAsBool(value, ctx);
-
-                    break;
-
-                case FormatStringEntryTag::NUMBER_VAL:
-
-                    fmtok &= this ->AddLogArgAsNumber(value, ctx);
-
-                    break;
-
-                case FormatStringEntryTag::STRING_VAL:
-                    fmtok &= this ->AddLogArgAsString(value, ctx);
-
-                    break;
-                case FormatStringEntryTag::OBJECT_VAL:
-                    fmtok &= this ->AddLogArgAsObject(value, ctx, fentry.Depth, fentry.Length);
-
-                    this ->m_jsonCycleDetectionMap.Clear();
-
-                    break;
-                case FormatStringEntryTag::ARRAY_VAL:
-                    fmtok &= this ->AddLogArgAsArray(value, ctx, fentry.Depth, fentry.Length);
-
-                    this ->m_jsonCycleDetectionMap.Clear();
-
-                    break;
-                case FormatStringEntryTag::GENERAL_VAL:
-                    this ->AddGeneralValue_Internal(value, ctx, NATIVE_LOGGER_DEFAULT_EXPAND_DEPTH); //format is always ok -- tag gets updated to match value kind
-
-                    this ->m_jsonCycleDetectionMap.Clear();
-                    break;
-                default:
-                    throw Error('We hit an unknown format tag: ' + fentry.ftag);
-                    break;
             }
         }
-    } catch (ex) {
-        //If we had a format error place that as the value immediately following the data
-        addEntryToMsgBlock(blockList, LogEntryTag.FormatErrorHit, ex);
+
+        //Set processing as false for cycle detection
+        blockList.jsonCycleMap.delete(obj);
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.RParen);
     }
+}
+
+/**
+ * A helper function for storing formatted arrays into our log
+ */
+function msgBlock_addArray_Internal(blockList, msgTag, obj, depth, length) {
+    //if the value is in the set and is currently processing (value is TRUE)
+    if (blockListblockList.jsonCycleMap.has(obj)) {
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.CycleValue);
+        return;
+    }
+
+    if (depth == 0) {
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.OpaqueObject);
+    }
+    else {
+        //Set processing as true for cycle detection
+        blockList.jsonCycleMap.add(obj);
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.LBrack);
+
+        for (let i = 0; i < obj.length; ++i) {
+            msgBlock_addGeneralValue_Internal(blockList, ClearFormatStringEntryTag, obj[i], depth - 1);
+
+            if (i >= length) {
+                msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.LengthBoundHit);
+                break;
+            }
+        }
+
+        //Set processing as false for cycle detection
+        blockList.jsonCycleMap.delete(obj);
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.RBrack);
+    }
+}
+
+/**
+ * A helper function for storing formatted values into our log
+ */
+function msgBlock_addGeneralValue_Internal(blockList, msgTag, value, depth) {
+    let typename = typeGetName(value);
+    if (typeIsSimple(typename) || typeIsBoolean(typename) || typeIsNumber(typename) || typeIsString(typename)) {
+        msgBlock_AddEntryToMsgBlock(blockList, msgTag | LogEntryTags.JsVarValue, value);
+    }
+    else if (typeIsDate(typename)) {
+        msgBlock_AddEntryToMsgBlock(blockList, msgTag | LogEntryTags.JsVarValue, new Date(value));
+    }
+    else if (typeIsFunction(typename)) {
+        msgBlock_AddEntryToMsgBlock(blockList, msgTag | LogEntryTags.JsVarValue, '[ #Function# ' + value.name + ' ]');
+    }
+    else if (typeIsObject(typename)) {
+        msgBlock_addObject_Internal(blockList, msgTag, value, depth, DEFAULT_EXPAND_OBJECT_LENGTH);
+    }
+    else if (typeIsArray(typename)) {
+        msgBlock_addArray_Internal(blockList, msgTag, value, depth, DEFAULT_EXPAND_ARRAY_LENGTH);
+    }
+    else {
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.OpaqueObject);
+    }
+}
+
+////////
+
+/**
+ * Log a message into the logger
+ * @function
+ * @param {Object} blockList the blocklist to emit into
+ * @param {Object} macroInfo the info on logger state that the expandos use
+ * @param {Object} fmt the message format
+ * @param {Array} args the array of arguments
+ */
+function logMessageGeneral(blockList, macroInfo, level, fmt, args) {
+    msgBlock_EnsureDataSlots(blockList, 2);
+    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgFormat, fmt);
+    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgLevel, level);
+
+    for (let i = 0; i < fmt.formatterArray.length; ++i) {
+        let fentry = fmt.formatterArray[i];
+        let value = undefined;
+        let valuetype = undefined
+
+        if (fentry.argPosition !== -1) {
+            if (fentry.argPosition < args.length) {
+                value = args[fentry.argPosition];
+                valuetype = typeGetName(value);
+            }
+            else {
+                //We hit a bad format value so rather than let it propigate -- report and move on.
+                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum | LogEntryTags.JsBadFormatVar, undefined);
+                continue;
+            }
+        }
+
+        switch (fentry.enum) {
+            case 0x1: // literal # 
+                //just break 
+                break;
+            case 0x2: //#ip_addr
+                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.IP_ADDR);
+                break;
+            case 0x3: //#app_name
+                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.APP_NAME);
+                break;
+            case 0x4: //#module_name
+                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.MODULE_NAME);
+                break;
+            case 0x5: //#msg_name
+                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, fmt.name);
+                break;
+            case 0x6: //#wall_time
+                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, Date.now());
+                break;
+            case 0x7: //#logical_time
+                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.LOGICAL_TIME);
+                break;
+            case 0x8: //#callback_id
+                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.CALLBACK_ID);
+                break;
+            case 0x9: //#request_id
+                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.REQUEST_ID);
+                break;
+            case 0x10: // literal $
+                //just break 
+                break;
+            case 0x20: //${i:b}
+                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum | LogEntryTags.JsVarValue, value ? true : false);
+                break;
+            case 0x30: //${i:n}
+                if (typeIsNumber(valuetype)) {
+                    msgBlock_AddEntryToMsgBlock(blockList, fentry.enum | LogEntryTags.JsVarValue, value);
+                }
+                else {
+                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                }
+                break;
+            case 0x40: //${i:s}
+                if (typeIsString(valuetype)) {
+                    msgBlock_AddEntryToMsgBlock(blockList, fentry.enum | LogEntryTags.JsVarValue, value);
+                }
+                else {
+                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                }
+                break;
+            case 0x50: //${i:g}
+                blockList.jsonCycleMap.clear();
+                msgBlock_addGeneralValue_Internal(blockList, fentry.enum, value, DEFAULT_EXPAND_DEPTH);
+                blockList.jsonCycleMap.clear();
+                break;
+            case 0x60: // ${i:o}
+                if (typeIsObject(valuetype)) {
+                    blockList.jsonCycleMap.clear();
+                    msgBlock_addObject_Internal(blockList, fentry.enum, value, fmt.depth, fmt.length);
+                    blockList.jsonCycleMap.clear();
+                }
+                else {
+                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                }
+                break;
+            case 0x70: // ${i:a}
+                if (typeIsArray(valuetype)) {
+                    blockList.jsonCycleMap.clear();
+                    msgBlock_addArray_Internal(blockList, fentry.enum, value, fmt.depth, fmt.length);
+                    blockList.jsonCycleMap.clear();
+                }
+                else {
+                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                }
+                break;
+            default:
+                msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                break;
+        }
+    }
+
+    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.MsgEndSentinal);
+}
+
+/**
+ * Log a message into the logger -- when all formatting is simple
+ * @function
+ * @param {Object} blockList the blocklist to emit into
+ * @param {Object} macroInfo the info on logger state that the expandos use
+ * @param {Object} fmt the message format
+ * @param {Array} args the array of arguments
+ */
+function logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, args) {
+    msgBlock_EnsureDataSlots(blockList, 3 + fmt.formatterArray.length);
+    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgFormat, fmt);
+    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgLevel, level);
+
+    for (let i = 0; i < fmt.formatterArray.length; ++i) {
+        let fentry = fmt.formatterArray[i];
+        let value = undefined;
+        let valuetype = undefined
+
+        if (fentry.argPosition !== -1) {
+            if (fentry.argPosition < args.length) {
+                value = args[fentry.argPosition];
+                valuetype = typeGetName(value);
+            }
+            else {
+                //We hit a bad format value so rather than let it propigate -- report and move on.
+                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum | LogEntryTags.JsBadFormatVar, undefined);
+                continue;
+            }
+        }
+
+        switch (fentry.enum) {
+            case 0x1: // literal # 
+                //just break 
+                break;
+            case 0x2: //#ip_addr
+                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.IP_ADDR);
+                break;
+            case 0x3: //#app_name
+                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.APP_NAME);
+                break;
+            case 0x4: //#module_name
+                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.MODULE_NAME);
+                break;
+            case 0x5: //#msg_name
+                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, fmt.name);
+                break;
+            case 0x6: //#wall_time
+                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, Date.now());
+                break;
+            case 0x7: //#logical_time
+                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.LOGICAL_TIME);
+                break;
+            case 0x8: //#callback_id
+                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.CALLBACK_ID);
+                break;
+            case 0x9: //#request_id
+                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.REQUEST_ID);
+                break;
+            case 0x10: // literal $
+                //just break 
+                break;
+            case 0x20: //${i:b}
+                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum | LogEntryTags.JsVarValue, value ? true : false);
+                break;
+            case 0x30: //${i:n}
+                if (typeIsNumber(valuetype)) {
+                    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum | LogEntryTags.JsVarValue, value);
+                }
+                else {
+                    msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                }
+                break;
+            case 0x40: //${i:s}
+                if (typeIsString(valuetype)) {
+                    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum | LogEntryTags.JsVarValue, value);
+                }
+                else {
+                    msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                }
+                break;
+            default:
+                msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                break;
+        }
+    }
+
+    msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, LogEntryTags.MsgEndSentinal);
+}
+
+/**
+ * Log a message into the logger -- when there are no additional arguments (we just pass them to keep the signature the same)
+ * @function
+ * @param {Object} blockList the blocklist to emit into
+ * @param {Object} macroInfo the info on logger state that the expandos use
+ * @param {Object} fmt the message format
+ * @param {Array} args the array of arguments
+ */
+function logMessageConstantString(blockList, macroInfo, level, fmt, args) {
+    msgBlock_EnsureDataSlots(blockList, 3);
+    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgFormat, fmt);
+    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgLevel, level);
+    msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, LogEntryTags.MsgEndSentinal);
 }
