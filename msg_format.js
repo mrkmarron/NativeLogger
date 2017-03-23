@@ -44,7 +44,6 @@ LoggingLevels = {
     TRACE: { label: 'TRACE', enum: 0x3F },
     ALL: { label: 'ALL', enum: 0xFF }
 };
-LoggingLevels.exports = LoggingLevels;
 
 /**
  * Tag values for system info logging levels.
@@ -56,12 +55,9 @@ SystemInfoLevels = {
     ASYNC: { label: 'ASYNC', enum: 0x300 },
     ALL: { label: 'ALL', enum: 0xF00 }
 };
-exports.SystemInfoLevels = SystemInfoLevels;
 
 /**
  * Check if the given actualLevel is enabled with the current level checkLevel.
- * @param {number} actualLevel 
- * @param {number} checkLevel 
  */
 function isLogLevelEnabled(actualLevel, checkLevel) {
     return (actualLevel & checkLevel !== 0);
@@ -192,10 +188,6 @@ function isSingleSlotFormatter(formatTag) {
 
 /**
  * Construct a msgFormat entry for an expando.
- * @function
- * @param {Object} formatTag a tag from FormatStringEntryTag
- * @param {number} formatStringStart where the formatter starts in the format string
- * @param {number} formatStringEnd where the formatter string ends -- entry is range [formatStringStart, formatStringEnd)
  */
 function msgFormat_CreateExpando(formatTag, formatStringStart, formatStringEnd) {
     return { format: formatTag, formatStart: formatStringStart, formatEnd: formatStringEnd };
@@ -203,11 +195,6 @@ function msgFormat_CreateExpando(formatTag, formatStringStart, formatStringEnd) 
 
 /**
  * Construct a msgFormat entry for a simple formatter.
- * @function
- * @param {Object} formatTag a tag from FormatStringEntryTag
- * @param {number} argListPosition the position of the format arg in the arglist
- * @param {number} formatStringStart where the formatter starts in the format string
- * @param {number} formatStringEnd where the formatter string ends -- entry is range [formatStringStart, formatStringEnd)
  */
 function msgFormat_CreateBasicFormatter(formatTag, argListPosition, formatStringStart, formatStringEnd) {
     return { format: formatTag, argPosition: argListPosition, formatStart: formatStringStart, formatEnd: formatStringEnd };
@@ -215,13 +202,6 @@ function msgFormat_CreateBasicFormatter(formatTag, argListPosition, formatString
 
 /**
  * Construct a msgFormat entry for a compound formatter.
- * @function
- * @param {Object} formatTag a tag from FormatStringEntryTag
- * @param {number} argListPosition the position of the format arg in the arglist
- * @param {number} formatStringStart where the formatter starts in the format string
- * @param {number} formatStringEnd where the formatter string ends -- entry is range [formatStringStart, formatStringEnd)
- * @param {number} formatExpandDepth object expansion depth
- * @param {number} formatExpandLength object expansion length
  */
 function msgFormat_CreateCompundFormatter(formatTag, argListPosition, formatStringStart, formatStringEnd, formatExpandDepth, formatExpandLength) {
     return { format: formatTag, argPosition: argListPosition, formatStart: formatStringStart, formatEnd: formatStringEnd, expandDepth: formatExpandDepth, expandLength: formatExpandLength };
@@ -229,9 +209,6 @@ function msgFormat_CreateCompundFormatter(formatTag, argListPosition, formatStri
 
 /**
  * Take an array or object literal format representation and convert it to json string format representation.
- * @function
- * @param {*} jobj 
- * @return {string}
  */
 function msgFormat_expandToJsonFormatter(jobj) {
     let typename = typeGetName(jobj);
@@ -268,10 +245,6 @@ function msgFormat_expandToJsonFormatter(jobj) {
 
 /**
  * Helper function to extract and construct an expando format specifier or throws is the expando is malformed
- * @function
- * @param {string} fmtString
- * @param {number} vpos
- * @returns {Object} format specifier object
  */
 function msgFormat_extractExpandoSpecifier(fmtString, vpos) {
     if (fmtString.startsWith('##', vpos)) {
@@ -289,10 +262,6 @@ function msgFormat_extractExpandoSpecifier(fmtString, vpos) {
 
 /**
  * Helper function to extract and construct an argument format specifier or throws is the format specifier is malformed.
- * @function
- * @param {string} fmtString
- * @param {number} vpos
- * @returns {Object} format specifier object
  */
 function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
     if (fmtString.startsWith('$$', vpos)) {
@@ -373,12 +342,6 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
 
 /**
  * Construct a msgFormat object.
- * @function
- * @param {string} fmtName is the name given to the format message
- * @param {string} fmtString the format string 
- * @param {number} maxArgPos the largest argument index used in the format message
- * @param {Array} fmtEntryArray the array of msgFormat entries (expandos and format strings) used
- * @param {boolean} allSingleSlotFormatters true if all the formatter entries are single slot
  */
 function msgFormat_Create(fmtName, fmtString, maxArgPos, fmtEntryArray, areAllSingleSlotFormatters) {
     return { formatName: fmtName, formatString: fmtString, maxArgPosition: maxArgPos, formatterArray: fmtEntryArray, allSingleSlotFormatters: areAllSingleSlotFormatters };
@@ -386,11 +349,6 @@ function msgFormat_Create(fmtName, fmtString, maxArgPos, fmtEntryArray, areAllSi
 
 /**
  * Takes a message format string and converts it to our internal format structure.
- * @function
- * @param {string} fmtName The name of the format string.
- * @param {*} fmtInfo The format string | a literal JSON format object/array
- * @throws If the format is ill-defined we throw an error.
- * @returns {Object} The format structure object 
  */
 function extractMsgFormat(fmtName, fmtInfo) {
     let cpos = 0;
@@ -516,7 +474,7 @@ function msgBlock_Create(previousBlock) {
 /**
  * A helper function to create a blocklist
  */
-function msgBlock_CreateBlockList() {
+function msgBlock_createBlockList() {
     let iblock = msgBlock_Create(null);
 
     return {
@@ -529,7 +487,7 @@ function msgBlock_CreateBlockList() {
 /**
  * A helper function to clear blocklist
  */
-function msgBlock_ClearBlockList(blockList) {
+function msgBlock_clearBlockList(blockList) {
     blockList.head.tags.fill(0, blockList.head.count);
     blockList.head.data.fill(0, blockList.head.count);
     blockList.head.count = 0;
@@ -695,11 +653,6 @@ function msgBlock_addGeneralValue_Internal(blockList, value, depth) {
 
 /**
  * Log a message into the logger
- * @function
- * @param {Object} blockList the blocklist to emit into
- * @param {Object} macroInfo the info on logger state that the expandos use
- * @param {Object} fmt the message format
- * @param {Array} args the array of arguments
  */
 function msgBlock_logMessageGeneral(blockList, macroInfo, level, fmt, args) {
     msgBlock_EnsureDataSlots(blockList, 2);
@@ -814,11 +767,6 @@ function msgBlock_logMessageGeneral(blockList, macroInfo, level, fmt, args) {
 
 /**
  * Log a message into the logger -- when all formatting is simple
- * @function
- * @param {Object} blockList the blocklist to emit into
- * @param {Object} macroInfo the info on logger state that the expandos use
- * @param {Object} fmt the message format
- * @param {Array} args the array of arguments
  */
 function msgBlock_logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, args) {
     msgBlock_EnsureDataSlots(blockList, 3 + fmt.formatterArray.length);
@@ -903,10 +851,6 @@ function msgBlock_logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, a
 
 /**
  * Log a message into the logger -- when there are no additional arguments
- * @function
- * @param {Object} blockList the blocklist to emit into
- * @param {Object} macroInfo the info on logger state that the expandos use
- * @param {Object} fmt the message format
  */
 function msgBlock_logMessageConstantString(blockList, macroInfo, level, fmt, args) {
     msgBlock_EnsureDataSlots(blockList, 3);
@@ -917,11 +861,6 @@ function msgBlock_logMessageConstantString(blockList, macroInfo, level, fmt, arg
 
 /**
  * The main function for logging a message to the block list.
- * @function
- * @param {Object} blockList the blocklist to emit into
- * @param {Object} macroInfo the info on logger state that the expandos use
- * @param {Object} fmt the message format
- * @param {Array} args the array of arguments
  */
 function logMsg(blockList, macroInfo, level, fmt, args) {
     if (fmt.formatterArray.length === 0) {
@@ -952,8 +891,6 @@ function isLevelEnabledForWrite(cblock, cpos, trgtLevel) {
 /**
  * (1) Filter out all the msgs that we want to drop when writing to disk and copy them to the pending write list.
  * (2) Process the blocks for native emitting (if needed)
- * @param {Object} inMemoryBlockList 
- * @param {number} retainLevel 
  */
 function processMsgsForWrite(inMemoryBlockList, retainLevel, pendingWriteBlockList) {
     let scanForMsgEnd = false;
@@ -972,7 +909,7 @@ function processMsgsForWrite(inMemoryBlockList, retainLevel, pendingWriteBlockLi
             }
         }
     }
-    msgBlock_ClearBlockList(inMemoryBlockList);
+    msgBlock_clearBlockList(inMemoryBlockList);
 
     if (global.processForNativeWrite) {
         process.stderr.write('Native writing is not implemented yet!!!');
@@ -1097,10 +1034,24 @@ function emitter_emitSpecialVar(tag, writer) {
 }
 
 /**
- * Create an emitter that will format/emit from the block list into the writer.
+ * Create an emitter that will format/emit from a block list into the writer.
  */
-function emitter_createEmitter(blockList, writer) {
-    return { blockList: blockList, block: blockList.head, pos: 0, writer: writer, stateStack: [] };
+function emitter_createEmitter(writer) {
+    return { blockList: null, block: null, pos: 0, writer: writer, stateStack: [] };
+}
+
+/**
+ * Append a new blocklist into the current one in this emitter
+ */
+function emitter_appendBlockList(emitter, blockList) {
+    if(emitter.blockList === null) {
+        emitter.blockList = blockList;
+        emitter.block = blocklist.head;
+        emitter.pos = 0;
+    }
+    else {
+        assert(false, 'Need to add append code here!!!');
+    }
 }
 
 /**
@@ -1165,6 +1116,9 @@ function emitter_emitFormatMsgSpan(emitter) {
     sentry.formatterIndex++;
 }
 
+/**
+ * Emit a value when we are in format entry mode.
+ */
 function emitter_emitFormatEntry(emitter, tag, data) {
     let writer = emitter.writer;
     let sentry = emitter_peekEmitState(emitter);
@@ -1256,6 +1210,9 @@ function emitter_emitFormatEntry(emitter, tag, data) {
     }
 }
 
+/**
+ * Emit a value when we are in object entry mode.
+ */
 function emitter_emitObjectEntry(emitter, tag, data) {
     let writer = emitter.writer;
     let sentry = emitter_peekEmitState(emitter);
@@ -1289,6 +1246,9 @@ function emitter_emitObjectEntry(emitter, tag, data) {
     }
 }
 
+/**
+ * Emit a value when we are in array entry mode.
+ */
 function emitter_emitArrayEntry(emitter, tag, data) {
     let writer = emitter.writer;
     let sentry = emitter_peekEmitState(emitter);
@@ -1320,13 +1280,27 @@ function emitter_emitArrayEntry(emitter, tag, data) {
 
 /**
  * Emit a single message -- return true if more to emit false otherwise
- * @param {Object} emitter 
  */
-function emitMsg(emitter) {
-    asdf;
+function emitter_emitMsg(emitter) {
+    let state = emitter_peekEmitState(emitter).mode;
+    let tag = emitter.block.tags[emitter.pos];
+    let data = emitter.block.data[emitter.pos];
+
+    if(state === EmitModes.MsgFormat) {
+        emitter_emitFormatEntry(emitter, tag, data);
+    }
+    else if(state === EmitModes.ObjectLevel) {
+        emitter_emitObjectEntry(emitter, tag, data);
+    }
+    else {
+        emitter_emitArrayEntry(emitter, tag, data);
+    }
 }
 
-function emitBlockList_ProcessLoop(emitter) {
+/**
+ * The main process loop for the emitter -- write a full message and check if drain is required + cb invoke.
+ */
+function emitter_ProcessLoop(emitter) {
     let flush = false;
     while (emitter.block !== null && !flush) {
         let tag = emitter.block.tags[emitter.pos];
@@ -1336,11 +1310,11 @@ function emitBlockList_ProcessLoop(emitter) {
             emitter_pushFormatState(emitter, data);
         }
         else {
-            emitMsg(emitter);
+            emitter_emitMsg(emitter);
         }
 
         if(tag === LogEntryTags.MsgEndSentinal) {
-            flush = writter.needsToDrain();
+            flush = emitter.writer.needsToDrain();
         }
 
         //Advance the position of the emitter
@@ -1353,13 +1327,71 @@ function emitBlockList_ProcessLoop(emitter) {
         }
     }
 
+    //if we need to flush then call the writer drain with a callback to us
     if(flush) {
-        asdf; //set callback on writer...
+        emitter.writer.drain(function () {
+            emitter_ProcessLoop(emitter);
+        });
     }
 }
 
+/**
+ * Call this method to emit a blocklist (as needed).
+ */
 function emitBlockList(emitter, blockList) {
-    asdf;
+    emitter_appendBlockList(blockList);
+    emitter_ProcessLoop(emitter);
 }
 
+/////////////////////////////
+//Code for various writer implementations
 
+/**
+ * Create a basic console writer 
+ */
+function createConsoleWriter() {
+    let process = require('process');
+    return {
+        emitChar: function(c) {
+            process.stdout.write(c);
+        },
+        emitFullString: function(str) {
+            process.stdout.write(str);
+        },
+        emitStringSpan: function(str, start, end) {
+            process.stdout.write(str.substr(start, end - start));
+        },
+        needsToDrain: function() {
+            return false;
+        },
+        drain: function(cb) {
+            assert(false, 'Should never be trying to drain!');
+        }
+    }
+}
+
+/////////////////////////////
+//Exports
+
+//Export the logging and systemlogging level enums
+exports.LoggingLevels = LoggingLevels;
+exports.SystemInfoLevels = SystemInfoLevels;
+
+//Export function to create a message format from a string or object/array
+exports.createMsgFormat = extractMsgFormat;
+
+//Export function for logging a message into the in-memory logging buffer
+exports.createBlockList = msgBlock_createBlockList;
+exports.logMsg = logMsg;
+
+//Export a function to filter in-memory messages into a block for emit
+exports.processMsgsForWrite = processMsgsForWrite;
+
+//Export a function for creating an emitter
+exports.createEmitter = emitter_createEmitter;
+
+//Export a function to write messages out to the given writer
+exports.emitBlockList = emitBlockList;
+
+//Create a console writer
+exports.createConsoleWriter = createConsoleWriter;
