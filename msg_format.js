@@ -34,7 +34,7 @@
  * Tag values for logging levels.
  * @exports
  */
-exports.LoggingLevels = {
+LoggingLevels = {
     OFF: { label: 'OFF', enum: 0x0 },
     FATAL: { label: 'FATAL', enum: 0x1 },
     ERROR: { label: 'ERROR', enum: 0x3 },
@@ -44,17 +44,28 @@ exports.LoggingLevels = {
     TRACE: { label: 'TRACE', enum: 0x3F },
     ALL: { label: 'ALL', enum: 0xFF }
 };
+LoggingLevels.exports = LoggingLevels;
 
 /**
  * Tag values for system info logging levels.
  * @exports
  */
-exports.SystemInfoLevels = {
+SystemInfoLevels = {
     OFF: { label: 'OFF', enum: 0x0 },
     REQUEST: { label: 'REQUEST', enum: 0x100 },
     ASYNC: { label: 'ASYNC', enum: 0x300 },
     ALL: { label: 'ALL', enum: 0xF00 }
 };
+exports.SystemInfoLevels = SystemInfoLevels;
+
+/**
+ * Check if the given actualLevel is enabled with the current level checkLevel.
+ * @param {number} actualLevel 
+ * @param {number} checkLevel 
+ */
+function isLogLevelEnabled(actualLevel, checkLevel) {
+    return (actualLevel & checkLevel !== 0);
+}
 
 //Default values we expand objects and arrays to
 let DEFAULT_EXPAND_DEPTH = 2;
@@ -427,7 +438,7 @@ function extractMsgFormat(fmtName, fmtInfo) {
         }
     }
 
-    let allBasicFormatters = fArray.every(function(value) {
+    let allBasicFormatters = fArray.every(function (value) {
         return isSingleSlotFormatter(value);
     });
 
@@ -516,6 +527,18 @@ function msgBlock_CreateBlockList() {
         tail: iblock,
         jsonCycleMap: new Set()
     };
+}
+
+/**
+ * A helper function to clear blocklist
+ */
+function msgBlock_ClearBlockList(blockList) {
+    blockList.head.tags.fill(0, blockList.head.count);
+    blockList.head.data.fill(0, blockList.head.count);
+    blockList.head.count = 0;
+    blockList.head.next = null;
+
+    blockList.tail = blockList.head;
 }
 
 /**
@@ -681,7 +704,7 @@ function msgBlock_addGeneralValue_Internal(blockList, msgTag, value, depth) {
  * @param {Object} fmt the message format
  * @param {Array} args the array of arguments
  */
-function logMessageGeneral(blockList, macroInfo, level, fmt, args) {
+function msgBlock_logMessageGeneral(blockList, macroInfo, level, fmt, args) {
     msgBlock_EnsureDataSlots(blockList, 2);
     msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgFormat, fmt);
     msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgLevel, level);
@@ -735,7 +758,12 @@ function logMessageGeneral(blockList, macroInfo, level, fmt, args) {
                 //just break 
                 break;
             case 0x20: //${i:b}
-                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum | LogEntryTags.JsVarValue, value ? true : false);
+                if (typeIsSimple(valuetype) || typeIsBoolean(valuetype) || typeIsNumber(valuetype)) {
+                    msgBlock_AddEntryToMsgBlock(blockList, fentry.enum | LogEntryTags.JsVarValue, value ? true : false);
+                }
+                else {
+                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                }
                 break;
             case 0x30: //${i:n}
                 if (typeIsNumber(valuetype)) {
@@ -795,7 +823,7 @@ function logMessageGeneral(blockList, macroInfo, level, fmt, args) {
  * @param {Object} fmt the message format
  * @param {Array} args the array of arguments
  */
-function logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, args) {
+function msgBlock_logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, args) {
     msgBlock_EnsureDataSlots(blockList, 3 + fmt.formatterArray.length);
     msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgFormat, fmt);
     msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgLevel, level);
@@ -883,7 +911,7 @@ function logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, args) {
  * @param {Object} macroInfo the info on logger state that the expandos use
  * @param {Object} fmt the message format
  */
-function logMessageConstantString(blockList, macroInfo, level, fmt, args) {
+function msgBlock_logMessageConstantString(blockList, macroInfo, level, fmt, args) {
     msgBlock_EnsureDataSlots(blockList, 3);
     msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgFormat, fmt);
     msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgLevel, level);
@@ -899,18 +927,450 @@ function logMessageConstantString(blockList, macroInfo, level, fmt, args) {
  * @param {Array} args the array of arguments
  */
 function logMsg(blockList, macroInfo, level, fmt, args) {
-    if(fmt.formatterArray.length === 0) {
-        logMessageConstantString(blockList, macroInfo, level, fmt);
+    if (fmt.formatterArray.length === 0) {
+        msgBlock_logMessageConstantString(blockList, macroInfo, level, fmt);
     }
-    else if(fmt.allSingleSlotFormatters) {
-        logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, args);
+    else if (fmt.allSingleSlotFormatters) {
+        msgBlock_logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, args);
     }
     else {
-        logMessageGeneral(blockList, macroInfo, level, fmt, args);
+        msgBlock_logMessageGeneral(blockList, macroInfo, level, fmt, args);
     }
 }
 
 /////////////////////////////
-//Code for filtering the in memory representation for writing out
+//Code for filtering the in memory representation and for writing out
 
+/**
+ * Check if the message (starting at cblock[cpos]) is enabled for writing at the given level
+ */
+function isLevelEnabledForWrite(cblock, cpos, trgtLevel) {
+    //TODO: take this out later for performance but good initial sanity check
+    assert((cpos + 1 < cblock.count) ? cblock.tags[cpos + 1] : block.next.tags[0] === LogEntryTags.MsgLevel);
 
+    let mlevel = (cpos + 1 < cblock.count) ? cblock.data[cpos + 1] : block.next.data[0];
+    return isLogLevelEnabled(mlevel, trgtLevel);
+}
+
+/**
+ * (1) Filter out all the msgs that we want to drop when writing to disk and copy them to the pending write list.
+ * (2) Process the blocks for native emitting (if needed)
+ * @param {Object} inMemoryBlockList 
+ * @param {number} retainLevel 
+ */
+function processMsgsForWrite(inMemoryBlockList, retainLevel, pendingWriteBlockList) {
+    let scanForMsgEnd = false;
+    for (let cblock = inMemoryBlockList.head; cblock !== null; cblock = cblock.next) {
+        for (let pos = 0; pos < cblock.count; ++pos) {
+            if (scanForMsgEnd) {
+                scanForMsgEnd = (cblock.tags[pos] !== LogEntryTags.MsgEndSentinal);
+            }
+            else {
+                if (cblock.tags[pos] === LogEntryTags.MsgFormat && !isLevelEnabledForWrite(cblock, pos, retainLevel)) {
+                    scanForMsgEnd = true;
+                }
+                else {
+                    msgBlock_AddEntryToMsgBlock(pendingWriteBlockList, cblock.tags[pos], cblock.tags[pos]);
+                }
+            }
+        }
+    }
+    msgBlock_ClearBlockList(inMemoryBlockList);
+
+    if (global.processForNativeWrite) {
+        process.stderr.write('Native writing is not implemented yet!!!');
+    }
+}
+
+/////////////////////////////
+//Code for pure JS write to storage
+
+/**
+ * When we are emitting we can be in multiple modes (formatting, objects, arrays, etc.) so we want tags (used below to indicate)
+ */
+let EmitModes = {
+    Clear: 0x0,
+    MsgFormat: 0x1,
+    ObjectLevel: 0x2,
+    ArrayLevel: 0x3
+};
+
+/**
+ * Create an emit state stack entry for a formatter msg
+ */
+function emitStack_createFormatterState(fmt) {
+    return { mode: EmitModes.MsgFormat, commaInsert: false, format: fmt, formatterIndex: 0 };
+}
+
+/**
+ * Create an emit state stack entry for an object or array format
+ */
+function emitStack_createJSONState(emitMode) {
+    return { mode: emitMode, commaInsert: false };
+}
+
+/**
+ * Check and update the need to insert a comma in our output
+ */
+function emitStack_checkAndUpdateNeedsComma(emitEntry) {
+    if (emitEntry.commaInsert) {
+        return true;
+    }
+    else {
+        emitEntry.commaInsert = true;
+        return false;
+    }
+}
+
+/**
+ * Get the start position for a span of literal text in a format string to emit.
+ */
+function emitStack_getFormatRangeStart(emitEntry) {
+    return emitEntry.format.formatterArray[emitEntry.formatterIndex].end;
+}
+
+/**
+ * Get the end position for a span of literal text in a format string to emit.
+ */
+function emitStack_getFormatRangeEnd(emitEntry) {
+    let fmtArray = emitEntry.format.formatterArray;
+    return (emitEntry.formatterIndex + 1 < fmtArray.length) ? fmtArray[emitEntry.formatterIndex + 1].start : emitEntry.format.formatString.length;
+}
+
+function emitter_emitJsString(str, writer) {
+    writer.emitChar('"');
+    writer.emitFullString(str);
+    writer.emitChar('"');
+}
+
+function emitter_emitEntryStart(writer) {
+    writer.emitChar('>');
+}
+
+function emitter_emitEntryEnd(writer) {
+    writer.emitChar('\n');
+}
+
+/**
+ * Emit a simple var (JsVarValue tag)
+ * @param {Object} value 
+ * @param {Object} writer 
+ */
+function emitter_emitSimpleVar(value, writer) {
+    if (value === undefined) {
+        writer.emitFullString('undefined');
+    }
+    else if (value === 'null') {
+        writer.emitFullString('null');
+    }
+    else {
+        writer.emitFullString(value.toString());
+    }
+}
+
+/**
+ * Emit a special var as indicated by the tag
+ * @param {Object} tag
+ * @param {Object} writer 
+ */
+function emitter_emitSpecialVar(tag, writer) {
+    switch (tag) {
+        case LogEntryTags.JsBadFormatVar:
+            writer.emitFullString('"<BadFormat>"');
+            break;
+        case LogEntryTags.LengthBoundHit:
+            writer.emitFullString('<LengthBoundHit>"');
+            break;
+        case LogEntryTags.CycleValue:
+            writer.emitFullString('"<Cycle>"');
+            break;
+        case LogEntryTags.OpaqueValue:
+            writer.emitFullString('"<Value>"');
+            break;
+        case LogEntryTags.OpaqueObject:
+            writer.emitFullString('"<Object>"');
+            break;
+        case LogEntryTags.OpaqueArray:
+            writer.emitFullString('"<Array>"');
+            break;
+        default:
+            assert(false, "Unknown case in switch statement for special var emit.");
+            break;
+    }
+}
+
+/**
+ * Create an emitter that will format/emit from the block list into the writer.
+ */
+function emitter_createEmitter(blockList, writer) {
+    return { blockList: blockList, writer: writer, stateStack: [] };
+}
+
+/**
+ * Push top level format msg state
+ */
+function emitter_pushFormatState(emitter, fmt) {
+    emitter.stateStack.push(emitStack_createFormatterState(fmt));
+}
+
+/**
+ * Push an object format msg state and write opening {
+ */
+function emitter_pushObjectState(emitter) {
+    emitter.stateStack.push(emitStack_createJSONState(EmitModes.ObjectLevel));
+    emitter.writer.emitChar("{");
+}
+
+/**
+ * Push an array format msg state and write opening [
+ */
+function emitter_pushArrayState(emitter) {
+    emitter.stateStack.push(emitStack_createJSONState(EmitModes.ArrayLevel));
+    emitter.writer.emitChar('[');
+}
+
+/**
+ * Peek at the top emitter stack state
+ */
+function emitter_peekEmitState(emitter) {
+    return emitter.stateStack[emitter.stateStack.length - 1];
+}
+
+/**
+ * Pop and emitter state and write any needed closing } or ] and fill in any string format text
+ */
+function emitter_popEmitState(emitter) {
+    let pentry = emitter.stateStack.pop();
+    if (pentry.mode == EmitModes.MsgFormat) {
+        emitter_emitEntryEnd(emitter);
+    }
+    else {
+        emitter.writer.emitChar(pentry.mode === EmitModes.ObjectLevel ? '}' : ']');
+
+        let sentry = emitter_peekEmitState(emitter);
+        if (sentry.mode === EmitModes.MsgFormat) {
+            emitter_emitFormatMsgSpan(emitter);
+        }
+    }
+}
+
+/**
+ * Write the msg format literal text between two format specifiers (or string end).
+ */
+function emitter_emitFormatMsgSpan(emitter) {
+    let sentry = emitter_peekEmitState(emitter);
+
+    let start = emitStack_getFormatRangeStart(sentry);
+    let end = emitStack_getFormatRangeEnd(sentry);
+
+    emitter.writer.emitStringSpan(sentry.format.formatString, start, end);
+
+    sentry.formatterIndex++;
+}
+
+function emitter_emitFormatEntry(emitter, tag, data) {
+    let writer = emitter.writer;
+    let sentry = emitter_peekEmitState(emitter);
+    let fmt = sentry.format;
+
+    if (tag === LogEntryTags.MsgLevel) {
+        //write format string to first formatter pos (or entire string if no formatters) and set the stack as needed.
+        emitter_emitEntryStart(writer);
+
+        let logLevelEntry = LoggingLevels.find(function (value) {
+            return value.enum === (data & LoggingLevels.ALL);
+        });
+
+        let systemLevelEntry = SystemInfoLevels.find(function (value) {
+            return value.enum === (data & SystemInfoLevels.ALL);
+        });
+
+        writer.emitFullString('level: ');
+        if (logLevelEntry & systemLevelEntry) {
+            writer.emitFullString('(logging: ');
+            writer.emitFullString(logLevelEntry.label);
+            writer.emitFullString(', system: ');
+            writer.emitFullString(systemLevelEntry.label);
+            writer.emitFullString(')');
+
+        }
+        else {
+            if (logLevelEntry) {
+                writer.emitFullString(logLevelEntry.label);
+            }
+            else {
+                writer.emitFullString(systemLevelEntry.label);
+            }
+        }
+
+        writer.emitFullString(', msg: ')
+        if (fmt.formatterArray.length === 0) {
+            writer.emitFullString(fmt.formatString);
+        }
+        else {
+            let fpos = fmt.formatterArray[0].start;
+            writer.emitStringSpan(fmt.formatString, 0, fpos);
+        }
+    }
+    else {
+        if ((tag & LogEntryTags_Mask) === LogEntryTags.LParen) {
+            emitter_pushObjectState(emitter);
+        }
+        else if ((tag & LogEntryTags_Mask) === LogEntryTags.LBrack) {
+            emitter_pushArrayState(emitter);
+        }
+        else if((tag & LogEntryTags_Mask) === LogEntryTags.JsBadFormatVar) {
+asdf;--
+        }
+        else {
+            switch (fentry.Tag.enum) {
+                case 0x1: //#
+                    writer.emitFullString('#');
+                    break;
+                case FormatStringEntryTag::WALLTIME:
+                    this ->EmitWalltime(data.JsVar);
+                    break;
+                case FormatStringEntryTag::BOOL_VAL:
+                    this ->EmitVarAsBool(data.JsVar);
+                    break;
+                case FormatStringEntryTag::NUMBER_VAL:
+                    this ->EmitVarAsNumber(data.JsVar);
+                    break;
+                case FormatStringEntryTag::STRING_VAL:
+                    this ->EmitVarAsString(data.JsVar);
+                    break;
+
+IP_ADDR: fse_generateExpandoEntry('IP_ADDR', '#ip_addr', 0x2),
+    APP_NAME: fse_generateExpandoEntry('APP_NAME', '#app_name', 0x3),
+    MODULE_NAME: se_generateExpandoEntry('MODULE_NAME', '#module_name', 0x4),
+    MSG_NAME: fse_generateExpandoEntry('MSG_NAME', '#msg_name', 0x5),
+    WALLTIME: fse_generateExpandoEntry('WALL_TIME', '#wall_time', 0x6),
+    LOGICAL_TIME: fse_generateExpandoEntry('LOGICAL_TIME', '#logical_time', 0x7),
+    CALLBACK_ID: fse_generateExpandoEntry('CALLBACK_ID', '#callback_id', 0x8),
+    REQUEST_ID: fse_generateExpandoEntry('REQUEST_ID', '#request_id', 0x9),
+
+                case 0x10: //$
+                    writer.emitFullString('$');
+                    break;
+
+                    BOOL_VAL: fse_generateBasicFormatterEntry('BOOL_VAL', 'b', 0x20), //${p:b}
+    NUMBER_VAL: fse_generateBasicFormatterEntry('NUMBER_VAL', 'n', 0x30), //${p:n}
+    STRING_VAL: fse_generateBasicFormatterEntry('STRING_VAL', 's', 0x40), //${p:s}
+                default:
+                    emitter_emitSimpleVar(data, writer);
+                    break;
+            }
+
+            this ->EmitFormatMsgSpan();
+            sentry.AdvanceFormatPos();
+        }
+    }
+
+    if (sentry.IsFormatterComplete()) {
+        this ->PopEmitState();
+    }
+}
+
+void Logger::EmitObjectEntry(LogEntryTag tag, DataEntryOpt data)
+{
+    EmitStateStack & sentry = this ->EmitStateStackGet();
+    AssertMsg(sentry.IsStateMode(EmitMode::ObjectLevel), "Shound not be here then.");
+
+    if (tag == LogEntryTag::PropertyRecord)
+    {
+        if (sentry.CheckAndUpdateNeedsComma()) {
+            this ->EmitLiteralString(", ");
+        }
+
+        this ->EmitJsString(data.JsPRecord ->GetBuffer(), data.JsPRecord ->GetLength());
+        this ->EmitLiteralString(": ");
+    }
+        else if (tag == LogEntryTag::RParen)
+    {
+        this ->PopEmitState();
+    }
+        else
+    {
+        switch (tag) {
+            case LogEntryTag::JsVarValue:
+                this ->EmitSimpleVar(data.JsVar);
+                break;
+            case LogEntryTag::LParen:
+                this ->PushObjectState();
+                break;
+            case LogEntryTag::LBrack:
+                this ->PushArrayState();
+                break;
+            default:
+                this ->EmitSpecialVar(tag);
+                break;
+        }
+    }
+}
+
+void Logger::EmitArrayEntry(LogEntryTag tag, DataEntryOpt data)
+{
+    if (tag == LogEntryTag::RBrack)
+    {
+        this ->PopEmitState();
+    }
+        else
+    {
+        EmitStateStack & sentry = this ->EmitStateStackGet();
+        AssertMsg(sentry.IsStateMode(EmitMode::ArrayLevel), "Shound not be here then.");
+
+        if (sentry.CheckAndUpdateNeedsComma()) {
+            this ->EmitLiteralString(", ");
+        }
+
+        switch (tag) {
+            case LogEntryTag::JsVarValue:
+                this ->EmitSimpleVar(data.JsVar);
+                break;
+            case LogEntryTag::LParen:
+                this ->PushObjectState();
+                break;
+            case LogEntryTag::LBrack:
+                this ->PushArrayState();
+                break;
+            default:
+                this ->EmitSpecialVar(tag);
+                break;
+        }
+    }
+}
+
+void Logger::EmitSingleBlock(LogEntryBlock * block)
+{
+    for (uint32 i = 0; i < block ->Count; ++i)
+    {
+        switch (this ->EmitStateStackPeek().GetStateMode()) {
+            case EmitMode::TopLevel:
+                this ->EmitTopLevelEntry(block ->Tags[i], block ->Data[i]);
+                break;
+            case EmitMode::SpanMessage:
+                this ->EmitSpanEntry(block ->Tags[i], block ->Data[i]);
+                break;
+            case EmitMode::MsgFormat:
+                this ->EmitFormatEntry(block ->Tags[i], block ->Data[i]);
+                break;
+            case EmitMode::ObjectLevel:
+                this ->EmitObjectEntry(block ->Tags[i], block ->Data[i]);
+                break;
+            case EmitMode::ArrayLevel:
+                this ->EmitArrayEntry(block ->Tags[i], block ->Data[i]);
+                break;
+            default:
+                AssertMsg(false, "Unknown option in output loop");
+                break;
+        }
+    }
+}
+
+/**
+ * Emit a single message -- return true if more to emit false otherwise
+ * @param {Object} emitter 
+ */
+function emitMsg(emitter) {
+    asdf; --
+}
