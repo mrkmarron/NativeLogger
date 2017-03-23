@@ -1100,7 +1100,7 @@ function emitter_emitSpecialVar(tag, writer) {
  * Create an emitter that will format/emit from the block list into the writer.
  */
 function emitter_createEmitter(blockList, writer) {
-    return { blockList: blockList, writer: writer, stateStack: [] };
+    return { blockList: blockList, block: blockList.head, pos: 0, writer: writer, stateStack: [] };
 }
 
 /**
@@ -1323,5 +1323,43 @@ function emitter_emitArrayEntry(emitter, tag, data) {
  * @param {Object} emitter 
  */
 function emitMsg(emitter) {
-    asdf; --
+    asdf;
 }
+
+function emitBlockList_ProcessLoop(emitter) {
+    let flush = false;
+    while (emitter.block !== null && !flush) {
+        let tag = emitter.block.tags[emitter.pos];
+        let data = emitter.block.data[emitter.pos];
+
+        if(tag === LogEntryTags.MsgFormat) {
+            emitter_pushFormatState(emitter, data);
+        }
+        else {
+            emitMsg(emitter);
+        }
+
+        if(tag === LogEntryTags.MsgEndSentinal) {
+            flush = writter.needsToDrain();
+        }
+
+        //Advance the position of the emitter
+        if (emitter.pos < emitter.block.count - 1) {
+            emitter.pos++;
+        }
+        else {
+            emitter.block = emitter.block.next;
+            emitter.pos = 0;
+        }
+    }
+
+    if(flush) {
+        asdf; //set callback on writer...
+    }
+}
+
+function emitBlockList(emitter, blockList) {
+    asdf;
+}
+
+
