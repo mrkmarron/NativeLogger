@@ -155,8 +155,6 @@ let FormatStringEntryTag = {
     OBJECT_VAL: fse_generateCompundFormatterEntry('OBJECT_VAL', 'o', 0x60), //${p:o<d,l>}
     ARRAY_VAL: fse_generateCompundFormatterEntry('ARRAY_VAL', 'a', 0x70) //${p:a<d,l>}
 };
-let ClearFormatStringEntryTag = 0x0;
-let FormatStringEntryTag_Mask = 0xFF;
 
 let s_expandoEntries = Object.keys(FormatStringEntryTag)
     .filter(function (value) { return value.kind === 'expando'; })
@@ -473,7 +471,6 @@ let LogEntryTags = {
     OpaqueObject: 0x6000,
     OpaqueArray: 0x7000
 };
-let LogEntryTags_Mask = 0xFF00;
 
 /**
  * When we are emitting we can be in multiple modes (formatting, objects, arrays, etc.) so we want tags (used below to indicate)
@@ -603,25 +600,25 @@ function msgBlock_AddEntryToMsgBlockTagOnly(blockList, tag) {
 /**
  * A helper function for storing formatted objects into our log
  */
-function msgBlock_addObject_Internal(blockList, msgTag, obj, depth, length) {
+function msgBlock_addObject_Internal(blockList, obj, depth, length) {
     //if the value is in the set and is currently processing (value is TRUE)
     if (blockList.jsonCycleMap.has(obj)) {
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.CycleValue);
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.CycleValue);
         return;
     }
 
     if (depth == 0) {
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.OpaqueObject);
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.OpaqueObject);
     }
     else {
         //Set processing as true for cycle detection
         blockList.jsonCycleMap.add(obj);
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.LParen);
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.LParen);
 
         let allowedLengthRemain = length;
         for (let p in obj) {
             msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.PropertyRecord, p);
-            msgBlock_AddGeneralValue_Internal(blockList, ClearFormatStringEntryTag, obj[p], depth - 1);
+            msgBlock_AddGeneralValue_Internal(blockList, LogEntryTags.JsVarValue, obj[p], depth - 1);
 
             allowedLengthRemain--;
             if (allowedLengthRemain <= 0) {
@@ -639,23 +636,23 @@ function msgBlock_addObject_Internal(blockList, msgTag, obj, depth, length) {
 /**
  * A helper function for storing formatted arrays into our log
  */
-function msgBlock_addArray_Internal(blockList, msgTag, obj, depth, length) {
+function msgBlock_addArray_Internal(blockList, obj, depth, length) {
     //if the value is in the set and is currently processing (value is TRUE)
     if (blockListblockList.jsonCycleMap.has(obj)) {
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.CycleValue);
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.CycleValue);
         return;
     }
 
     if (depth == 0) {
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.OpaqueObject);
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.OpaqueObject);
     }
     else {
         //Set processing as true for cycle detection
         blockList.jsonCycleMap.add(obj);
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.LBrack);
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.LBrack);
 
         for (let i = 0; i < obj.length; ++i) {
-            msgBlock_addGeneralValue_Internal(blockList, ClearFormatStringEntryTag, obj[i], depth - 1);
+            msgBlock_addGeneralValue_Internal(blockList, obj[i], depth - 1);
 
             if (i >= length) {
                 msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.LengthBoundHit);
@@ -672,25 +669,25 @@ function msgBlock_addArray_Internal(blockList, msgTag, obj, depth, length) {
 /**
  * A helper function for storing formatted values into our log
  */
-function msgBlock_addGeneralValue_Internal(blockList, msgTag, value, depth) {
+function msgBlock_addGeneralValue_Internal(blockList, value, depth) {
     let typename = typeGetName(value);
     if (typeIsSimple(typename) || typeIsBoolean(typename) || typeIsNumber(typename) || typeIsString(typename)) {
-        msgBlock_AddEntryToMsgBlock(blockList, msgTag | LogEntryTags.JsVarValue, value);
+        msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, value);
     }
     else if (typeIsDate(typename)) {
-        msgBlock_AddEntryToMsgBlock(blockList, msgTag | LogEntryTags.JsVarValue, new Date(value));
+        msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, new Date(value));
     }
     else if (typeIsFunction(typename)) {
-        msgBlock_AddEntryToMsgBlock(blockList, msgTag | LogEntryTags.JsVarValue, '[ #Function# ' + value.name + ' ]');
+        msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, '[ #Function# ' + value.name + ' ]');
     }
     else if (typeIsObject(typename)) {
-        msgBlock_addObject_Internal(blockList, msgTag, value, depth, DEFAULT_EXPAND_OBJECT_LENGTH);
+        msgBlock_addObject_Internal(blockList, value, depth, DEFAULT_EXPAND_OBJECT_LENGTH);
     }
     else if (typeIsArray(typename)) {
-        msgBlock_addArray_Internal(blockList, msgTag, value, depth, DEFAULT_EXPAND_ARRAY_LENGTH);
+        msgBlock_addArray_Internal(blockList, value, depth, DEFAULT_EXPAND_ARRAY_LENGTH);
     }
     else {
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, msgTag | LogEntryTags.OpaqueObject);
+        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.OpaqueObject);
     }
 }
 
@@ -731,83 +728,83 @@ function msgBlock_logMessageGeneral(blockList, macroInfo, level, fmt, args) {
                 //just break 
                 break;
             case 0x2: //#ip_addr
-                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.IP_ADDR);
+                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.IP_ADDR);
                 break;
             case 0x3: //#app_name
-                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.APP_NAME);
+                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.APP_NAME);
                 break;
             case 0x4: //#module_name
-                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.MODULE_NAME);
+                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.MODULE_NAME);
                 break;
             case 0x5: //#msg_name
-                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, fmt.name);
+                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, fmt.name);
                 break;
             case 0x6: //#wall_time
-                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, Date.now());
+                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, Date.now());
                 break;
             case 0x7: //#logical_time
-                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.LOGICAL_TIME);
+                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.LOGICAL_TIME);
                 break;
             case 0x8: //#callback_id
-                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.CALLBACK_ID);
+                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.CALLBACK_ID);
                 break;
             case 0x9: //#request_id
-                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum, macroInfo.REQUEST_ID);
+                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.REQUEST_ID);
                 break;
             case 0x10: // literal $
                 //just break 
                 break;
             case 0x20: //${i:b}
                 if (typeIsSimple(valuetype) || typeIsBoolean(valuetype) || typeIsNumber(valuetype)) {
-                    msgBlock_AddEntryToMsgBlock(blockList, fentry.enum | LogEntryTags.JsVarValue, value ? true : false);
+                    msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, value ? true : false);
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
                 }
                 break;
             case 0x30: //${i:n}
                 if (typeIsNumber(valuetype)) {
-                    msgBlock_AddEntryToMsgBlock(blockList, fentry.enum | LogEntryTags.JsVarValue, value);
+                    msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, value);
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
                 }
                 break;
             case 0x40: //${i:s}
                 if (typeIsString(valuetype)) {
-                    msgBlock_AddEntryToMsgBlock(blockList, fentry.enum | LogEntryTags.JsVarValue, value);
+                    msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, value);
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
                 }
                 break;
             case 0x50: //${i:g}
                 blockList.jsonCycleMap.clear();
-                msgBlock_addGeneralValue_Internal(blockList, fentry.enum, value, DEFAULT_EXPAND_DEPTH);
+                msgBlock_addGeneralValue_Internal(blockList, value, DEFAULT_EXPAND_DEPTH);
                 blockList.jsonCycleMap.clear();
                 break;
             case 0x60: // ${i:o}
                 if (typeIsObject(valuetype)) {
                     blockList.jsonCycleMap.clear();
-                    msgBlock_addObject_Internal(blockList, fentry.enum, value, fmt.depth, fmt.length);
+                    msgBlock_addObject_Internal(blockList, value, fmt.depth, fmt.length);
                     blockList.jsonCycleMap.clear();
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
                 }
                 break;
             case 0x70: // ${i:a}
                 if (typeIsArray(valuetype)) {
                     blockList.jsonCycleMap.clear();
-                    msgBlock_addArray_Internal(blockList, fentry.enum, value, fmt.depth, fmt.length);
+                    msgBlock_addArray_Internal(blockList, value, fmt.depth, fmt.length);
                     blockList.jsonCycleMap.clear();
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
                 }
                 break;
             default:
-                msgBlock_AddEntryToMsgBlockTagOnly(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
+                msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
                 break;
         }
     }
@@ -1173,196 +1170,150 @@ function emitter_emitFormatEntry(emitter, tag, data) {
     let sentry = emitter_peekEmitState(emitter);
     let fmt = sentry.format;
 
-    if (tag === LogEntryTags.MsgLevel) {
-        //write format string to first formatter pos (or entire string if no formatters) and set the stack as needed.
-        emitter_emitEntryStart(writer);
+    assert(sentry.mode === EmitModes.MsgFormat, "Shound not be here then.");
 
-        let logLevelEntry = LoggingLevels.find(function (value) {
-            return value.enum === (data & LoggingLevels.ALL);
-        });
-
-        let systemLevelEntry = SystemInfoLevels.find(function (value) {
-            return value.enum === (data & SystemInfoLevels.ALL);
-        });
-
-        writer.emitFullString('level: ');
-        if (logLevelEntry & systemLevelEntry) {
-            writer.emitFullString('(logging: ');
-            writer.emitFullString(logLevelEntry.label);
-            writer.emitFullString(', system: ');
-            writer.emitFullString(systemLevelEntry.label);
-            writer.emitFullString(')');
-
-        }
-        else {
-            if (logLevelEntry) {
-                writer.emitFullString(logLevelEntry.label);
-            }
-            else {
-                writer.emitFullString(systemLevelEntry.label);
-            }
-        }
-
-        writer.emitFullString(', msg: ')
-        if (fmt.formatterArray.length === 0) {
-            writer.emitFullString(fmt.formatString);
-        }
-        else {
-            let fpos = fmt.formatterArray[0].start;
-            writer.emitStringSpan(fmt.formatString, 0, fpos);
-        }
+    if (tag === LogEntryTags.MsgEndSentinal) {
+        emitter_popEmitState(emitter);
     }
     else {
-        if ((tag & LogEntryTags_Mask) === LogEntryTags.LParen) {
+        if (tag === LogEntryTags.MsgLevel) {
+            //write format string to first formatter pos (or entire string if no formatters) and set the stack as needed.
+            emitter_emitEntryStart(writer);
+
+            let logLevelEntry = LoggingLevels.find(function (value) {
+                return value.enum === (data & LoggingLevels.ALL);
+            });
+
+            let systemLevelEntry = SystemInfoLevels.find(function (value) {
+                return value.enum === (data & SystemInfoLevels.ALL);
+            });
+
+            writer.emitFullString('level: ');
+            if (logLevelEntry & systemLevelEntry) {
+                writer.emitFullString('(logging: ');
+                writer.emitFullString(logLevelEntry.label);
+                writer.emitFullString(', system: ');
+                writer.emitFullString(systemLevelEntry.label);
+                writer.emitFullString(')');
+
+            }
+            else {
+                if (logLevelEntry) {
+                    writer.emitFullString(logLevelEntry.label);
+                }
+                else {
+                    writer.emitFullString(systemLevelEntry.label);
+                }
+            }
+
+            writer.emitFullString(', msg: ')
+            if (fmt.formatterArray.length === 0) {
+                writer.emitFullString(fmt.formatString);
+            }
+            else {
+                let fpos = fmt.formatterArray[0].start;
+                writer.emitStringSpan(fmt.formatString, 0, fpos);
+            }
+        }
+        else if (tag === LogEntryTags.LParen) {
             emitter_pushObjectState(emitter);
         }
-        else if ((tag & LogEntryTags_Mask) === LogEntryTags.LBrack) {
+        else if (tag === LogEntryTags.LBrack) {
             emitter_pushArrayState(emitter);
         }
-        else if((tag & LogEntryTags_Mask) === LogEntryTags.JsBadFormatVar) {
-asdf;--
+        else if (tag === LogEntryTags.JsBadFormatVar || tag === LogEntryTags.OpaqueValue) {
+            emitter_emitSpecialVar(dataTag, writer);
         }
         else {
             switch (fentry.Tag.enum) {
                 case 0x1: //#
                     writer.emitFullString('#');
                     break;
-                case FormatStringEntryTag::WALLTIME:
-                    this ->EmitWalltime(data.JsVar);
+                case 0x2: //#ip_addr
+                case 0x3: //#app_name
+                case 0x4: //#module_name
+                case 0x5: //#msg_name
+                    writer.emitFullString(data);
                     break;
-                case FormatStringEntryTag::BOOL_VAL:
-                    this ->EmitVarAsBool(data.JsVar);
+                case 0x6: //#wall_time
+                    writer.emitFullString(data.toISOString());
                     break;
-                case FormatStringEntryTag::NUMBER_VAL:
-                    this ->EmitVarAsNumber(data.JsVar);
+                case 0x7: //#locial_time
+                case 0x8: //#callback_id
+                case 0x9: //#request_id
+                    writer.emitFullString(data.toString());
                     break;
-                case FormatStringEntryTag::STRING_VAL:
-                    this ->EmitVarAsString(data.JsVar);
-                    break;
-
-IP_ADDR: fse_generateExpandoEntry('IP_ADDR', '#ip_addr', 0x2),
-    APP_NAME: fse_generateExpandoEntry('APP_NAME', '#app_name', 0x3),
-    MODULE_NAME: se_generateExpandoEntry('MODULE_NAME', '#module_name', 0x4),
-    MSG_NAME: fse_generateExpandoEntry('MSG_NAME', '#msg_name', 0x5),
-    WALLTIME: fse_generateExpandoEntry('WALL_TIME', '#wall_time', 0x6),
-    LOGICAL_TIME: fse_generateExpandoEntry('LOGICAL_TIME', '#logical_time', 0x7),
-    CALLBACK_ID: fse_generateExpandoEntry('CALLBACK_ID', '#callback_id', 0x8),
-    REQUEST_ID: fse_generateExpandoEntry('REQUEST_ID', '#request_id', 0x9),
-
                 case 0x10: //$
                     writer.emitFullString('$');
                     break;
-
-                    BOOL_VAL: fse_generateBasicFormatterEntry('BOOL_VAL', 'b', 0x20), //${p:b}
-    NUMBER_VAL: fse_generateBasicFormatterEntry('NUMBER_VAL', 'n', 0x30), //${p:n}
-    STRING_VAL: fse_generateBasicFormatterEntry('STRING_VAL', 's', 0x40), //${p:s}
                 default:
                     emitter_emitSimpleVar(data, writer);
                     break;
             }
 
-            this ->EmitFormatMsgSpan();
-            sentry.AdvanceFormatPos();
-        }
-    }
-
-    if (sentry.IsFormatterComplete()) {
-        this ->PopEmitState();
-    }
-}
-
-void Logger::EmitObjectEntry(LogEntryTag tag, DataEntryOpt data)
-{
-    EmitStateStack & sentry = this ->EmitStateStackGet();
-    AssertMsg(sentry.IsStateMode(EmitMode::ObjectLevel), "Shound not be here then.");
-
-    if (tag == LogEntryTag::PropertyRecord)
-    {
-        if (sentry.CheckAndUpdateNeedsComma()) {
-            this ->EmitLiteralString(", ");
-        }
-
-        this ->EmitJsString(data.JsPRecord ->GetBuffer(), data.JsPRecord ->GetLength());
-        this ->EmitLiteralString(": ");
-    }
-        else if (tag == LogEntryTag::RParen)
-    {
-        this ->PopEmitState();
-    }
-        else
-    {
-        switch (tag) {
-            case LogEntryTag::JsVarValue:
-                this ->EmitSimpleVar(data.JsVar);
-                break;
-            case LogEntryTag::LParen:
-                this ->PushObjectState();
-                break;
-            case LogEntryTag::LBrack:
-                this ->PushArrayState();
-                break;
-            default:
-                this ->EmitSpecialVar(tag);
-                break;
+            emitter_emitFormatMsgSpan(emitter);
         }
     }
 }
 
-void Logger::EmitArrayEntry(LogEntryTag tag, DataEntryOpt data)
-{
-    if (tag == LogEntryTag::RBrack)
-    {
-        this ->PopEmitState();
+function emitter_emitObjectEntry(emitter, tag, data) {
+    let writer = emitter.writer;
+    let sentry = emitter_peekEmitState(emitter);
+
+    assert(sentry.mode === EmitModes.ObjectLevel, "Shound not be here then.");
+
+    if (tag === LogEntryTags.RParen) {
+        emitter_popEmitState(emitter);
     }
-        else
-    {
-        EmitStateStack & sentry = this ->EmitStateStackGet();
-        AssertMsg(sentry.IsStateMode(EmitMode::ArrayLevel), "Shound not be here then.");
+    else {
+        if (tag === LogEntryTags.PropertyRecord) {
+            if (emitStack_checkAndUpdateNeedsComma(sentry)) {
+                writer.emitFullString(', ');
+            }
 
-        if (sentry.CheckAndUpdateNeedsComma()) {
-            this ->EmitLiteralString(", ");
+            emitter_emitJsString(data, writer);
+            writer.emitFullString(': ');
         }
-
-        switch (tag) {
-            case LogEntryTag::JsVarValue:
-                this ->EmitSimpleVar(data.JsVar);
-                break;
-            case LogEntryTag::LParen:
-                this ->PushObjectState();
-                break;
-            case LogEntryTag::LBrack:
-                this ->PushArrayState();
-                break;
-            default:
-                this ->EmitSpecialVar(tag);
-                break;
+        else if (tag === LogEntryTags.LParen) {
+            emitter_pushObjectState(emitter);
+        }
+        else if (tag === LogEntryTags.LBrack) {
+            emitter_pushArrayState(emitter);
+        }
+        else if (tag === LogEntryTags.JsVarValue) {
+            emitter_emitSimpleVar(data, writer);
+        }
+        else {
+            emitter_emitSpecialVar(tag, writer);
         }
     }
 }
 
-void Logger::EmitSingleBlock(LogEntryBlock * block)
-{
-    for (uint32 i = 0; i < block ->Count; ++i)
-    {
-        switch (this ->EmitStateStackPeek().GetStateMode()) {
-            case EmitMode::TopLevel:
-                this ->EmitTopLevelEntry(block ->Tags[i], block ->Data[i]);
-                break;
-            case EmitMode::SpanMessage:
-                this ->EmitSpanEntry(block ->Tags[i], block ->Data[i]);
-                break;
-            case EmitMode::MsgFormat:
-                this ->EmitFormatEntry(block ->Tags[i], block ->Data[i]);
-                break;
-            case EmitMode::ObjectLevel:
-                this ->EmitObjectEntry(block ->Tags[i], block ->Data[i]);
-                break;
-            case EmitMode::ArrayLevel:
-                this ->EmitArrayEntry(block ->Tags[i], block ->Data[i]);
-                break;
-            default:
-                AssertMsg(false, "Unknown option in output loop");
-                break;
+function emitter_emitArrayEntry(emitter, tag, data) {
+    let writer = emitter.writer;
+    let sentry = emitter_peekEmitState(emitter);
+
+    assert(sentry.mode === EmitModes.ObjectLevel, "Shound not be here then.");
+
+    if (tag === LogEntryTags.RBrack) {
+        emitter_popEmitState(emitter);
+    }
+    else {
+        if (emitStack_checkAndUpdateNeedsComma(sentry)) {
+            writer.emitFullString(', ');
+        }
+
+        if (tag === LogEntryTags.LParen) {
+            emitter_pushObjectState(emitter);
+        }
+        else if (tag === LogEntryTags.LBrack) {
+            emitter_pushArrayState(emitter);
+        }
+        else if (tag === LogEntryTags.JsVarValue) {
+            emitter_emitSimpleVar(data, writer);
+        }
+        else {
+            emitter_emitSpecialVar(tag, writer);
         }
     }
 }
