@@ -30,11 +30,14 @@
 
 'use strict';
 
+//TODO: remove asserts later
+let assert = require('assert');
+
 /**
  * Tag values for logging levels.
  * @exports
  */
-LoggingLevels = {
+let LoggingLevels = {
     OFF: { label: 'OFF', enum: 0x0 },
     FATAL: { label: 'FATAL', enum: 0x1 },
     ERROR: { label: 'ERROR', enum: 0x3 },
@@ -49,7 +52,7 @@ LoggingLevels = {
  * Tag values for system info logging levels.
  * @exports
  */
-SystemInfoLevels = {
+let SystemInfoLevels = {
     OFF: { label: 'OFF', enum: 0x0 },
     REQUEST: { label: 'REQUEST', enum: 0x100 },
     ASYNC: { label: 'ASYNC', enum: 0x300 },
@@ -60,7 +63,7 @@ SystemInfoLevels = {
  * Check if the given actualLevel is enabled with the current level checkLevel.
  */
 function isLogLevelEnabled(actualLevel, checkLevel) {
-    return (actualLevel & checkLevel !== 0);
+    return (actualLevel.enum & checkLevel.enum !== 0);
 }
 
 //Default values we expand objects and arrays to
@@ -136,7 +139,7 @@ let FormatStringEntryTag = {
     LITERAL_HASH: fse_generateLiteralEntry('LITERAL_HASH', '#', 0x1),
     IP_ADDR: fse_generateExpandoEntry('IP_ADDR', '#ip_addr', 0x2),
     APP_NAME: fse_generateExpandoEntry('APP_NAME', '#app_name', 0x3),
-    MODULE_NAME: se_generateExpandoEntry('MODULE_NAME', '#module_name', 0x4),
+    MODULE_NAME: fse_generateExpandoEntry('MODULE_NAME', '#module_name', 0x4),
     MSG_NAME: fse_generateExpandoEntry('MSG_NAME', '#msg_name', 0x5),
     WALLTIME: fse_generateExpandoEntry('WALL_TIME', '#wall_time', 0x6),
     LOGICAL_TIME: fse_generateExpandoEntry('LOGICAL_TIME', '#logical_time', 0x7),
@@ -153,34 +156,34 @@ let FormatStringEntryTag = {
 };
 
 let s_expandoEntries = Object.keys(FormatStringEntryTag)
-    .filter(function (value) { return value.kind === 'expando'; })
+    .filter(function (value) { return FormatStringEntryTag[value].kind === 'expando'; })
     .map(function (value) { return FormatStringEntryTag[value]; });
 
 let s_basicFormatEntries = Object.keys(FormatStringEntryTag)
-    .filter(function (value) { return value.kind === 'basicFormat'; })
+    .filter(function (value) { return FormatStringEntryTag[value].kind === 'basicFormat'; })
     .map(function (value) { return FormatStringEntryTag[value]; });
 
 let s_compoundFormatEntries = Object.keys(FormatStringEntryTag)
-    .filter(function (value) { return value.kind === 'compundFormat'; })
-    .map(function (value) { return FormatStringEntryTag[value].label; });
+    .filter(function (value) { return FormatStringEntryTag[value].kind === 'compundFormat'; })
+    .map(function (value) { return FormatStringEntryTag[value]; });
 
 let s_expandoStringRe = new RegExp('^('
     + s_expandoEntries
-        .map(function (value) { return FormatStringEntryTag[value].label; })
+        .map(function (value) { return value.label; })
         .join('|')
     + ')$');
 
 let s_basicFormatStringRe = new RegExp('^\\${(\\d+):('
     + s_basicFormatEntries
-        .map(function (value) { return FormatStringEntryTag[value].label; })
+        .map(function (value) { return value.label; })
         .join('|')
     + ')}$');
 
 let s_compoundFormatStringRe = new RegExp('^\\${(\\d+):('
     + s_compoundFormatEntries
-        .map(function (value) { return FormatStringEntryTag[value].label; })
+        .map(function (value) { return value.label; })
         .join('|')
-    + ')(<(\\d+|\\*)?,(\\d+|\\*)?>}$');
+    + ')(<(\\d+|\\*)?,(\\d+|\\*)?>)}$');
 
 function isSingleSlotFormatter(formatTag) {
     return formatTag.enum <= FormatStringEntryTag.STRING_VAL.enum;
@@ -251,7 +254,7 @@ function msgFormat_extractExpandoSpecifier(fmtString, vpos) {
         return msgFormat_CreateExpando(FormatStringEntryTag.LITERAL_HASH, vpos, vpos + '##'.length);
     }
     else {
-        let expando = s_expandoEntries.find(function (expando) { return fmtString.startsWith(expando.label); });
+        let expando = s_expandoEntries.find(function (expando) { return fmtString.startsWith(expando.label, vpos); });
         if (!expando) {
             throw new Error("Bad match in expando format string.");
         }
@@ -293,7 +296,7 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
 
         let cchar = fmtString.charAt(specPos);
         let basicFormatOption = s_basicFormatEntries.find(function (value) { return value.label === cchar; });
-        let compoundFormatOption = s_compoundFormatInfo.find(function (value) { return value.label === cchar; });
+        let compoundFormatOption = s_compoundFormatEntries.find(function (value) { return value.label === cchar; });
 
         if (!basicFormatOption && !compoundFormatOption) {
             throw new Error("Bad format specifier kind.");
@@ -390,7 +393,7 @@ function extractMsgFormat(fmtName, fmtInfo) {
                 maxArgPos = Math.max(maxArgPos, fmt.fposition);
             }
 
-            cpos = fmt.fend;
+            cpos = fmt.formatEnd;
         }
     }
 
@@ -664,19 +667,19 @@ function msgBlock_logMessageGeneral(blockList, macroInfo, level, fmt, args) {
         let value = undefined;
         let valuetype = undefined
 
-        if (fentry.argPosition !== -1) {
+        if (fentry.format.kind !== 'expando') {
             if (fentry.argPosition < args.length) {
                 value = args[fentry.argPosition];
                 valuetype = typeGetName(value);
             }
             else {
                 //We hit a bad format value so rather than let it propigate -- report and move on.
-                msgBlock_AddEntryToMsgBlock(blockList, fentry.enum | LogEntryTags.JsBadFormatVar, undefined);
+                msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
                 continue;
             }
         }
 
-        switch (fentry.enum) {
+        switch (fentry.format.enum) {
             case 0x1: // literal # 
                 //just break 
                 break;
@@ -904,7 +907,7 @@ function processMsgsForWrite(inMemoryBlockList, retainLevel, pendingWriteBlockLi
                     scanForMsgEnd = true;
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlock(pendingWriteBlockList, cblock.tags[pos], cblock.tags[pos]);
+                    msgBlock_AddEntryToMsgBlock(pendingWriteBlockList, cblock.tags[pos], cblock.data[pos]);
                 }
             }
         }
@@ -960,7 +963,7 @@ function emitStack_checkAndUpdateNeedsComma(emitEntry) {
  * Get the start position for a span of literal text in a format string to emit.
  */
 function emitStack_getFormatRangeStart(emitEntry) {
-    return emitEntry.format.formatterArray[emitEntry.formatterIndex].end;
+    return emitEntry.format.formatterArray[emitEntry.formatterIndex].formatEnd;
 }
 
 /**
@@ -968,7 +971,7 @@ function emitStack_getFormatRangeStart(emitEntry) {
  */
 function emitStack_getFormatRangeEnd(emitEntry) {
     let fmtArray = emitEntry.format.formatterArray;
-    return (emitEntry.formatterIndex + 1 < fmtArray.length) ? fmtArray[emitEntry.formatterIndex + 1].start : emitEntry.format.formatString.length;
+    return (emitEntry.formatterIndex + 1 < fmtArray.length) ? fmtArray[emitEntry.formatterIndex + 1].formatStart : emitEntry.format.formatString.length;
 }
 
 function emitter_emitJsString(str, writer) {
@@ -1044,9 +1047,9 @@ function emitter_createEmitter(writer) {
  * Append a new blocklist into the current one in this emitter
  */
 function emitter_appendBlockList(emitter, blockList) {
-    if(emitter.blockList === null) {
+    if (emitter.blockList === null) {
         emitter.blockList = blockList;
-        emitter.block = blocklist.head;
+        emitter.block = blockList.head;
         emitter.pos = 0;
     }
     else {
@@ -1090,7 +1093,7 @@ function emitter_peekEmitState(emitter) {
 function emitter_popEmitState(emitter) {
     let pentry = emitter.stateStack.pop();
     if (pentry.mode == EmitModes.MsgFormat) {
-        emitter_emitEntryEnd(emitter);
+        emitter_emitEntryEnd(emitter.writer);
     }
     else {
         emitter.writer.emitChar(pentry.mode === EmitModes.ObjectLevel ? '}' : ']');
@@ -1134,16 +1137,18 @@ function emitter_emitFormatEntry(emitter, tag, data) {
             //write format string to first formatter pos (or entire string if no formatters) and set the stack as needed.
             emitter_emitEntryStart(writer);
 
-            let logLevelEntry = LoggingLevels.find(function (value) {
-                return value.enum === (data & LoggingLevels.ALL);
+            let logLevelKey = Object.keys(LoggingLevels).find(function (value) {
+                return LoggingLevels[value].enum === (data.enum & LoggingLevels.ALL.enum);
             });
+            let logLevelEntry = LoggingLevels[logLevelKey];
 
-            let systemLevelEntry = SystemInfoLevels.find(function (value) {
-                return value.enum === (data & SystemInfoLevels.ALL);
+            let systemLevelKey = Object.keys(SystemInfoLevels).find(function (value) {
+                return SystemInfoLevels[value].enum === (data.enum & SystemInfoLevels.ALL.enum);
             });
+            let systemLevelEntry = SystemInfoLevels[systemLevelKey];
 
             writer.emitFullString('level: ');
-            if (logLevelEntry & systemLevelEntry) {
+            if (logLevelEntry !== LoggingLevels.OFF && systemLevelEntry !== SystemInfoLevels.OFF) {
                 writer.emitFullString('(logging: ');
                 writer.emitFullString(logLevelEntry.label);
                 writer.emitFullString(', system: ');
@@ -1165,7 +1170,7 @@ function emitter_emitFormatEntry(emitter, tag, data) {
                 writer.emitFullString(fmt.formatString);
             }
             else {
-                let fpos = fmt.formatterArray[0].start;
+                let fpos = fmt.formatterArray[0].formatStart;
                 writer.emitStringSpan(fmt.formatString, 0, fpos);
             }
         }
@@ -1179,7 +1184,8 @@ function emitter_emitFormatEntry(emitter, tag, data) {
             emitter_emitSpecialVar(dataTag, writer);
         }
         else {
-            switch (fentry.Tag.enum) {
+            let fentry = sentry.format.formatterArray[sentry.formatterIndex];
+            switch (fentry.format.enum) {
                 case 0x1: //#
                     writer.emitFullString('#');
                     break;
@@ -1190,7 +1196,7 @@ function emitter_emitFormatEntry(emitter, tag, data) {
                     writer.emitFullString(data);
                     break;
                 case 0x6: //#wall_time
-                    writer.emitFullString(data.toISOString());
+                    writer.emitFullString(new Date(data).toISOString());
                     break;
                 case 0x7: //#locial_time
                 case 0x8: //#callback_id
@@ -1286,10 +1292,10 @@ function emitter_emitMsg(emitter) {
     let tag = emitter.block.tags[emitter.pos];
     let data = emitter.block.data[emitter.pos];
 
-    if(state === EmitModes.MsgFormat) {
+    if (state === EmitModes.MsgFormat) {
         emitter_emitFormatEntry(emitter, tag, data);
     }
-    else if(state === EmitModes.ObjectLevel) {
+    else if (state === EmitModes.ObjectLevel) {
         emitter_emitObjectEntry(emitter, tag, data);
     }
     else {
@@ -1306,15 +1312,11 @@ function emitter_ProcessLoop(emitter) {
         let tag = emitter.block.tags[emitter.pos];
         let data = emitter.block.data[emitter.pos];
 
-        if(tag === LogEntryTags.MsgFormat) {
+        if (tag === LogEntryTags.MsgFormat) {
             emitter_pushFormatState(emitter, data);
         }
         else {
             emitter_emitMsg(emitter);
-        }
-
-        if(tag === LogEntryTags.MsgEndSentinal) {
-            flush = emitter.writer.needsToDrain();
         }
 
         //Advance the position of the emitter
@@ -1325,10 +1327,14 @@ function emitter_ProcessLoop(emitter) {
             emitter.block = emitter.block.next;
             emitter.pos = 0;
         }
+
+        if (tag === LogEntryTags.MsgEndSentinal) {
+            flush = emitter.writer.needsToDrain();
+        }
     }
 
     //if we need to flush then call the writer drain with a callback to us
-    if(flush) {
+    if (flush) {
         emitter.writer.drain(function () {
             emitter_ProcessLoop(emitter);
         });
@@ -1339,7 +1345,7 @@ function emitter_ProcessLoop(emitter) {
  * Call this method to emit a blocklist (as needed).
  */
 function emitBlockList(emitter, blockList) {
-    emitter_appendBlockList(blockList);
+    emitter_appendBlockList(emitter, blockList);
     emitter_ProcessLoop(emitter);
 }
 
@@ -1352,19 +1358,19 @@ function emitBlockList(emitter, blockList) {
 function createConsoleWriter() {
     let process = require('process');
     return {
-        emitChar: function(c) {
+        emitChar: function (c) {
             process.stdout.write(c);
         },
-        emitFullString: function(str) {
+        emitFullString: function (str) {
             process.stdout.write(str);
         },
-        emitStringSpan: function(str, start, end) {
+        emitStringSpan: function (str, start, end) {
             process.stdout.write(str.substr(start, end - start));
         },
-        needsToDrain: function() {
+        needsToDrain: function () {
             return false;
         },
-        drain: function(cb) {
+        drain: function (cb) {
             assert(false, 'Should never be trying to drain!');
         }
     }
