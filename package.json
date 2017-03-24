@@ -1,0 +1,28 @@
+{
+  "name": "fastlogger",
+  "version": "1.0.0",
+  "description": "Temp repo for developing logger code.",
+  "main": "msg_format.js",
+  "dependencies": {
+    "eslint": "^3.18.0"
+  },
+  "devDependencies": {
+    "eslint": "^3.18.0",
+    "eslint-config-standard": "^7.1.0",
+    "eslint-plugin-promise": "^3.5.0",
+    "eslint-plugin-standard": "^2.1.1"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrkmarron/NativeLogger.git"
+  },
+  "author": "Mark",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mrkmarron/NativeLogger/issues"
+  },
+  "homepage": "https://github.com/mrkmarron/NativeLogger#readme"
+}

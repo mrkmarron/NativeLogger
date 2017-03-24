@@ -17,7 +17,7 @@ let macroInfo = {
     REQUEST_ID: -1
 };
 
-lgr.logMsg(logBlockList, macroInfo, lgr.LoggingLevels.ALL, fmt_g1, ['ok', 5]);
+lgr.logMsg(logBlockList, macroInfo, lgr.LoggingLevels.DEBUG, fmt_g1, ['ok', 5]);
 
 ////
 //Move data into the memory buffer

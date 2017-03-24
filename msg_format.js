@@ -1,5 +1,5 @@
 /*
-* This module provides the representation of our msg formats and provides 
+* This module provides the representation of our msg formats and provides
 * functionality for converting strings or objects into the format.
 */
 
@@ -31,13 +31,12 @@
 'use strict';
 
 //TODO: remove asserts later
-let assert = require('assert');
+const assert = require('assert');
 
 /**
  * Tag values for logging levels.
- * @exports
  */
-let LoggingLevels = {
+const LoggingLevels = {
     OFF: { label: 'OFF', enum: 0x0 },
     FATAL: { label: 'FATAL', enum: 0x1 },
     ERROR: { label: 'ERROR', enum: 0x3 },
@@ -50,9 +49,8 @@ let LoggingLevels = {
 
 /**
  * Tag values for system info logging levels.
- * @exports
  */
-let SystemInfoLevels = {
+const SystemInfoLevels = {
     OFF: { label: 'OFF', enum: 0x0 },
     REQUEST: { label: 'REQUEST', enum: 0x100 },
     ASYNC: { label: 'ASYNC', enum: 0x300 },
@@ -63,13 +61,13 @@ let SystemInfoLevels = {
  * Check if the given actualLevel is enabled with the current level checkLevel.
  */
 function isLogLevelEnabled(actualLevel, checkLevel) {
-    return (actualLevel.enum & checkLevel.enum !== 0);
+    return (actualLevel.enum & checkLevel.enum) === actualLevel.enum;
 }
 
 //Default values we expand objects and arrays to
-let DEFAULT_EXPAND_DEPTH = 2;
-let DEFAULT_EXPAND_OBJECT_LENGTH = 1024;
-let DEFAULT_EXPAND_ARRAY_LENGTH = 128;
+const DEFAULT_EXPAND_DEPTH = 2;
+const DEFAULT_EXPAND_OBJECT_LENGTH = 1024;
+const DEFAULT_EXPAND_ARRAY_LENGTH = 128;
 
 /////////////////////////////
 //Generally useful code
@@ -280,17 +278,17 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
 
         let argPositionMatch = numberRegex.exec(fmtString);
         if (!argPositionMatch) {
-            throw new Error("Bad position specifier in format.");
+            throw new Error('Bad position specifier in format.');
         }
 
         let argPosition = Number.parseInt(argPositionMatch[0]);
         if (argPosition < 0) {
-            throw new Error("Bad position specifier in format.");
+            throw new Error('Bad position specifier in format.');
         }
 
         let specPos = vpos + '${'.length + argPositionMatch[0].length;
         if (fmtString.charAt(specPos) !== ':') {
-            throw new Error("Bad position specifier in format.");
+            throw new Error('Bad position specifier in format.');
         }
         specPos++;
 
@@ -299,7 +297,7 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
         let compoundFormatOption = s_compoundFormatEntries.find(function (value) { return value.label === cchar; });
 
         if (!basicFormatOption && !compoundFormatOption) {
-            throw new Error("Bad format specifier kind.");
+            throw new Error('Bad format specifier kind.');
         }
 
         if (basicFormatOption) {
@@ -310,10 +308,10 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
             let DL_STAR = 1073741824;
 
             if (fmtString.startsWith('o}', specPos)) {
-                return msgFormat_CreateCompundFormatter(FormatStringEntryTag.OBJECT_VAL, argPosition, vpos, specPos + 'o}'.length, DEFAULT_DEPTH, DEFAULT_OBJECT_LENGTH);
+                return msgFormat_CreateCompundFormatter(FormatStringEntryTag.OBJECT_VAL, argPosition, vpos, specPos + 'o}'.length, DEFAULT_EXPAND_DEPTH, DEFAULT_EXPAND_OBJECT_LENGTH);
             }
             else if (fmtString.startsWith('a}', specPos)) {
-                return msgFormat_CreateCompundFormatter(FormatStringEntryTag.ARRAY_VAL, argPosition, vpos, specPos + 'a}'.length, DEFAULT_DEPTH, DEFAULT_ARRAY_LENGTH);
+                return msgFormat_CreateCompundFormatter(FormatStringEntryTag.ARRAY_VAL, argPosition, vpos, specPos + 'a}'.length, DEFAULT_EXPAND_DEPTH, DEFAULT_EXPAND_ARRAY_LENGTH);
             }
             else {
                 let dlRegex = /([o|a])<(\d+|\*)?,(\d+|\*)?>/y;
@@ -321,12 +319,12 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
 
                 let dlMatch = dlRegex.exec(fmtString);
                 if (!dlMatch) {
-                    throw new Error("Bad position specifier in format.");
+                    throw new Error('Bad position specifier in format.');
                 }
 
                 let ttag = (dlMatch[1] === 'o') ? FormatStringEntryTag.OBJECT_VAL : FormatStringEntryTag.ARRAY_VAL;
-                let tdepth = DEFAULT_DEPTH;
-                let tlength = (dlMatch[1] === 'o') ? DEFAULT_OBJECT_LENGTH : DEFAULT_ARRAY_LENGTH;
+                let tdepth = DEFAULT_EXPAND_DEPTH;
+                let tlength = (dlMatch[1] === 'o') ? DEFAULT_EXPAND_OBJECT_LENGTH : DEFAULT_EXPAND_ARRAY_LENGTH;
 
                 if (dlMatch[2] !== '') {
                     tdepth = (dlMatch[2] !== '*') ? Number.parseInt(dlMatch[2]) : DL_STAR;
@@ -341,7 +339,6 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
         }
     }
 }
-
 
 /**
  * Construct a msgFormat object.
@@ -410,40 +407,22 @@ function extractMsgFormat(fmtName, fmtInfo) {
 /**
  * Tag values indicating the kind of each entry in the fast log buffer
  */
-let LogEntryTags = {
-    Clear: 0x0,
-
-    MsgFormat: 0x100,     //The var is pointer to the formatInfo object
-    MsgLevel: 0x200,      //The var is a tagged int of a logger level
-    MsgEndSentinal: 0x300, //Sentinal marking the end of a log message
-
-    LParen: 0x400,
-    RParen: 0x500,
-    LBrack: 0x600,
-    RBrack: 0x700,
-    PropertyRecord: 0x800,  //The entry contains a property record
-
-    JsBadFormatVar: 0x1000, //The var is undefined due to an argument that did not match the format specifier
-    JsVarValue: 0x2000,     //The var is a regular value 
-
-    LengthBoundHit: 0x3000,
-    CycleValue: 0x4000,
-    OpaqueValue: 0x5000,
-    OpaqueObject: 0x6000,
-    OpaqueArray: 0x7000
-};
-
-/**
- * When we are emitting we can be in multiple modes (formatting, objects, arrays, etc.) so we want tags (used below to indicate)
- */
-let EmitMode = {
-    Clear: 0x0,
-    TopLevelMode: 0x1,
-    SpanMessage: 0x2,
-    MsgFormat: 0x3,
-    ObjectMode: 0x4,
-    ArrayMode: 0x5
-};
+const LogEntryTags_Clear = 0;
+const LogEntryTags_MsgFormat = 1;
+const LogEntryTags_MsgLevel = 2;
+const LogEntryTags_MsgEndSentinal = 3;
+const LogEntryTags_LParen = 4;
+const LogEntryTags_RParen = 5;
+const LogEntryTags_LBrack = 6;
+const LogEntryTags_RBrack = 7;
+const LogEntryTags_PropertyRecord = 8;
+const LogEntryTags_JsBadFormatVar = 9;
+const LogEntryTags_JsVarValue = 10;
+const LogEntryTags_LengthBoundHit = 11;
+const LogEntryTags_CycleValue = 12;
+const LogEntryTags_OpaqueValue = 13;
+const LogEntryTags_OpaqueObject = 14;
+const LogEntryTags_OpaqueArray = 15;
 
 /**
  * The number of entries we have in a msg block.
@@ -451,205 +430,168 @@ let EmitMode = {
 const s_msgBlockSize = 1024;
 
 /**
- * A helper function to allocate a new block of messages.
+ * Create a blocklist
  */
-function msgBlock_Create(previousBlock) {
-    let nblock = {
-        //number of slots used
-        count: 0,
+function createBlockList() {
+    //internal function for allocating a block in the list
+    function createMsgBlock(previousBlock) {
+        const nblock = {
+            count: 0,
+            tags: new Uint8Array(s_msgBlockSize),
+            data: new Array(s_msgBlockSize),
+            next: null,
+            previous: previousBlock
+        };
 
-        //arrays holding the tag and entry data 
-        tags: new Uint16Array(s_msgBlockSize),
-        data: new Array(s_msgBlockSize),
+        if (previousBlock) {
+            previousBlock.next = nblock;
+        }
 
-        //DLL next/previous
-        next: null,
-        previous: (previousBlock ? previousBlock : null)
-    };
-
-    if (previousBlock) {
-        previousBlock.next = nblock;
+        return nblock;
     }
 
-    return nblock;
-}
-
-/**
- * A helper function to create a blocklist
- */
-function msgBlock_createBlockList() {
-    let iblock = msgBlock_Create(null);
-
+    const iblock = createMsgBlock(null);
     return {
         head: iblock,
         tail: iblock,
-        jsonCycleMap: new Set()
+        jsonCycleMap: new Set(),
+
+        //Clear the contents of the block list
+        clear: function () {
+            this.head.tags.fill(LogEntryTags_Clear, this.head.count);
+            this.head.data.fill(undefined, this.head.count);
+            this.head.count = 0;
+            this.head.next = null;
+
+            this.tail = this.head;
+        },
+
+        //Add an entry to the message block
+        addEntry: function(tag, data) {
+            let block = this.tail;
+            if (block.count === s_msgBlockSize) {
+                block = createMsgBlock(block);
+                this.tail = block;
+            }
+
+            block.tags[block.count] = tag;
+            block.data[block.count] = data;
+            block.count++;
+        },
+
+        //Add an entry to the message block that has the common JsVarValue tag
+        addJsVarValueEntry: function (data) {
+            let block = this.tail;
+            if (block.count === s_msgBlockSize) {
+                block = createMsgBlock(block);
+                this.tail = block;
+            }
+
+            block.tags[block.count] = LogEntryTags_JsVarValue;
+            block.data[block.count] = data;
+            block.count++;
+        },
+
+        //Add an entry to the message block that has no extra data
+        addTagOnlyEntry: function (tag) {
+            let block = this.tail;
+            if (block.count === s_msgBlockSize) {
+                block = createMsgBlock(block);
+                this.tail = block;
+            }
+
+            block.tags[block.count] = tag;
+            block.count++;
+        },
+
+        //Add an expanded object value to the log
+        addExpandedObject: function(obj, depth, length) {
+            //if the value is in the set and is currently processing
+            if (this.jsonCycleMap.has(obj)) {
+                this.addTagOnlyEntry(LogEntryTags_CycleValue);
+                return;
+            }
+
+            if (depth === 0) {
+                this.addTagOnlyEntry(LogEntryTags_OpaqueObject);
+            }
+            else {
+                //Set processing as true for cycle detection
+                this.jsonCycleMap.add(obj);
+                this.addTagOnlyEntry(LogEntryTags_LParen);
+
+                let allowedLengthRemain = length;
+                for (let p in obj) {
+                    this.addEntry(LogEntryTags_PropertyRecord, p);
+                    this.addGeneralValue(obj[p], depth - 1);
+
+                    allowedLengthRemain--;
+                    if (allowedLengthRemain <= 0) {
+                        this.addTagOnlyEntry(LogEntryTags_LengthBoundHit);
+                        break;
+                    }
+                }
+
+                //Set processing as false for cycle detection
+                this.jsonCycleMap.delete(obj);
+                this.addTagOnlyEntry(LogEntryTags_RParen);
+            }
+        },
+
+        //Add an expanded array value to the log
+        addExpandedArray(obj, depth, length) {
+            //if the value is in the set and is currently processing
+            if (this.jsonCycleMap.has(obj)) {
+                this.addTagOnlyEntry(LogEntryTags_CycleValue);
+                return;
+            }
+
+            if (depth === 0) {
+                this.addTagOnlyEntry(LogEntryTags_OpaqueObject);
+            }
+            else {
+                //Set processing as true for cycle detection
+                this.jsonCycleMap.add(obj);
+                this.addTagOnlyEntry(LogEntryTags_LBrack);
+
+                for (let i = 0; i < obj.length; ++i) {
+                    this.addGeneralValue(obj[i], depth - 1);
+
+                    if (i >= length) {
+                        this.addTagOnlyEntry(LogEntryTags_LengthBoundHit);
+                        break;
+                    }
+                }
+
+                //Set processing as false for cycle detection
+                this.jsonCycleMap.delete(obj);
+                this.addTagOnlyEntry(LogEntryTags_RBrack);
+            }
+        },
+
+        //Add a value using default formatting parameters
+        addGeneralValue: function(value, depth) {
+            const typename = typeGetName(value);
+            if (typeIsSimple(typename) || typeIsBoolean(typename) || typeIsNumber(typename) || typeIsString(typename)) {
+                this.addJsVarValueEntry(value);
+            }
+            else if (typeIsDate(typename)) {
+                this.addJsVarValueEntry(new Date(value));
+            }
+            else if (typeIsFunction(typename)) {
+                this.addJsVarValueEntry('[ #Function# ' + value.name + ' ]');
+            }
+            else if (typeIsObject(typename)) {
+                this.addExpandedObject(value, depth, DEFAULT_EXPAND_OBJECT_LENGTH);
+            }
+            else if (typeIsArray(typename)) {
+                this.addExpandedArray(value, depth, DEFAULT_EXPAND_ARRAY_LENGTH);
+            }
+            else {
+                this.addTagOnlyEntry(LogEntryTags_OpaqueObject);
+            }
+        }
     };
-}
-
-/**
- * A helper function to clear blocklist
- */
-function msgBlock_clearBlockList(blockList) {
-    blockList.head.tags.fill(0, blockList.head.count);
-    blockList.head.data.fill(0, blockList.head.count);
-    blockList.head.count = 0;
-    blockList.head.next = null;
-
-    blockList.tail = blockList.head;
-}
-
-/**
- * A helper ensure we can write several entries to a block without allocating
- */
-function msgBlock_EnsureDataSlots(blockList, size) {
-    let block = blockList.tail;
-    if (block.count + size >= s_msgBlockSize) {
-        let block = msgBlock_Create(block);
-        blockList.tail = block;
-    }
-}
-
-/**
- * A helper function to add an entry to a block list
- */
-function msgBlock_AddEntryToMsgBlock_Unchecked(blockList, tag, data) {
-    //TODO: remove this later but we want it for initial debugging
-    assert(blockList.tail.count < s_msgBlockSize, 'We missed a ensure size or got the computation wrong');
-
-    let block = blockList.tail;
-    block.tags[block.count] = tag;
-    block.data[block.count] = data;
-    block.count++;
-}
-
-function msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, tag) {
-    //TODO: remove this later but we want it for initial debugging
-    assert(blockList.tail.count < s_msgBlockSize, 'We missed a ensure size or got the computation wrong');
-
-    let block = blockList.tail;
-    block.tags[block.count] = tag;
-    block.count++;
-}
-
-/**
- * A helper function to add an entry to a block list
- */
-function msgBlock_AddEntryToMsgBlock(blockList, tag, data) {
-    let block = blockList.tail;
-    if (block.count === s_msgBlockSize) {
-        block = msgBlock_Create(block);
-        blockList.tail = block;
-    }
-
-    block.tags[block.count] = tag;
-    block.data[block.count] = data;
-    block.count++;
-}
-
-function msgBlock_AddEntryToMsgBlockTagOnly(blockList, tag) {
-    let block = blockList.tail;
-    if (block.count === s_msgBlockSize) {
-        block = msgBlock_Create(block);
-        blockList.tail = block;
-    }
-
-    block.tags[block.count] = tag;
-    block.count++;
-}
-
-/**
- * A helper function for storing formatted objects into our log
- */
-function msgBlock_addObject_Internal(blockList, obj, depth, length) {
-    //if the value is in the set and is currently processing (value is TRUE)
-    if (blockList.jsonCycleMap.has(obj)) {
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.CycleValue);
-        return;
-    }
-
-    if (depth == 0) {
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.OpaqueObject);
-    }
-    else {
-        //Set processing as true for cycle detection
-        blockList.jsonCycleMap.add(obj);
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.LParen);
-
-        let allowedLengthRemain = length;
-        for (let p in obj) {
-            msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.PropertyRecord, p);
-            msgBlock_AddGeneralValue_Internal(blockList, LogEntryTags.JsVarValue, obj[p], depth - 1);
-
-            allowedLengthRemain--;
-            if (allowedLengthRemain <= 0) {
-                msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.LengthBoundHit);
-                break;
-            }
-        }
-
-        //Set processing as false for cycle detection
-        blockList.jsonCycleMap.delete(obj);
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.RParen);
-    }
-}
-
-/**
- * A helper function for storing formatted arrays into our log
- */
-function msgBlock_addArray_Internal(blockList, obj, depth, length) {
-    //if the value is in the set and is currently processing (value is TRUE)
-    if (blockListblockList.jsonCycleMap.has(obj)) {
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.CycleValue);
-        return;
-    }
-
-    if (depth == 0) {
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.OpaqueObject);
-    }
-    else {
-        //Set processing as true for cycle detection
-        blockList.jsonCycleMap.add(obj);
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.LBrack);
-
-        for (let i = 0; i < obj.length; ++i) {
-            msgBlock_addGeneralValue_Internal(blockList, obj[i], depth - 1);
-
-            if (i >= length) {
-                msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.LengthBoundHit);
-                break;
-            }
-        }
-
-        //Set processing as false for cycle detection
-        blockList.jsonCycleMap.delete(obj);
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.RBrack);
-    }
-}
-
-/**
- * A helper function for storing formatted values into our log
- */
-function msgBlock_addGeneralValue_Internal(blockList, value, depth) {
-    let typename = typeGetName(value);
-    if (typeIsSimple(typename) || typeIsBoolean(typename) || typeIsNumber(typename) || typeIsString(typename)) {
-        msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, value);
-    }
-    else if (typeIsDate(typename)) {
-        msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, new Date(value));
-    }
-    else if (typeIsFunction(typename)) {
-        msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, '[ #Function# ' + value.name + ' ]');
-    }
-    else if (typeIsObject(typename)) {
-        msgBlock_addObject_Internal(blockList, value, depth, DEFAULT_EXPAND_OBJECT_LENGTH);
-    }
-    else if (typeIsArray(typename)) {
-        msgBlock_addArray_Internal(blockList, value, depth, DEFAULT_EXPAND_ARRAY_LENGTH);
-    }
-    else {
-        msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.OpaqueObject);
-    }
 }
 
 ////////
@@ -657,16 +599,16 @@ function msgBlock_addGeneralValue_Internal(blockList, value, depth) {
 /**
  * Log a message into the logger
  */
-function msgBlock_logMessageGeneral(blockList, macroInfo, level, fmt, args) {
-    msgBlock_EnsureDataSlots(blockList, 2);
-    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgFormat, fmt);
-    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgLevel, level);
+function logMessage(blockList, macroInfo, level, fmt, args) {
+    blockList.addEntry(LogEntryTags_MsgFormat, fmt);
+    blockList.addEntry(LogEntryTags_MsgLevel, level);
 
     for (let i = 0; i < fmt.formatterArray.length; ++i) {
         let fentry = fmt.formatterArray[i];
         let value = undefined;
-        let valuetype = undefined
+        let valuetype = undefined;
 
+        //TODO: this should check expando and then have the 2 branches + checks seperated....
         if (fentry.format.kind !== 'expando') {
             if (fentry.argPosition < args.length) {
                 value = args[fentry.argPosition];
@@ -674,7 +616,7 @@ function msgBlock_logMessageGeneral(blockList, macroInfo, level, fmt, args) {
             }
             else {
                 //We hit a bad format value so rather than let it propigate -- report and move on.
-                msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
+                blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
                 continue;
             }
         }
@@ -684,197 +626,82 @@ function msgBlock_logMessageGeneral(blockList, macroInfo, level, fmt, args) {
                 //just break 
                 break;
             case 0x2: //#ip_addr
-                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.IP_ADDR);
+                blockList.addJsVarValueEntry(macroInfo.IP_ADDR);
                 break;
             case 0x3: //#app_name
-                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.APP_NAME);
+                blockList.addJsVarValueEntry(macroInfo.APP_NAME);
                 break;
             case 0x4: //#module_name
-                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.MODULE_NAME);
+                blockList.addJsVarValueEntry(macroInfo.MODULE_NAME);
                 break;
             case 0x5: //#msg_name
-                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, fmt.name);
+                blockList.addJsVarValueEntry(fmt.name);
                 break;
             case 0x6: //#wall_time
-                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, Date.now());
+                blockList.addJsVarValueEntry(Date.now());
                 break;
             case 0x7: //#logical_time
-                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.LOGICAL_TIME);
+                blockList.addJsVarValueEntry(macroInfo.LOGICAL_TIME);
                 break;
             case 0x8: //#callback_id
-                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.CALLBACK_ID);
+                blockList.addJsVarValueEntry(macroInfo.CALLBACK_ID);
                 break;
             case 0x9: //#request_id
-                msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, macroInfo.REQUEST_ID);
+                blockList.addJsVarValueEntry(macroInfo.REQUEST_ID);
                 break;
             case 0x10: // literal $
                 //just break 
                 break;
             case 0x20: //${i:b}
                 if (typeIsSimple(valuetype) || typeIsBoolean(valuetype) || typeIsNumber(valuetype)) {
-                    msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, value ? true : false);
+                    blockList.addJsVarValueEntry(value ? true : false);
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
+                    blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
                 }
                 break;
             case 0x30: //${i:n}
                 if (typeIsNumber(valuetype)) {
-                    msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, value);
+                    blockList.addJsVarValueEntry(value);
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
+                    blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
                 }
                 break;
             case 0x40: //${i:s}
                 if (typeIsString(valuetype)) {
-                    msgBlock_AddEntryToMsgBlock(blockList, LogEntryTags.JsVarValue, value);
+                    blockList.addJsVarValueEntry(value);
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
+                    blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
                 }
                 break;
             case 0x50: //${i:g}
-                blockList.jsonCycleMap.clear();
-                msgBlock_addGeneralValue_Internal(blockList, value, DEFAULT_EXPAND_DEPTH);
-                blockList.jsonCycleMap.clear();
+                blockList.addGeneralValue(blockList, value, DEFAULT_EXPAND_DEPTH);
                 break;
             case 0x60: // ${i:o}
                 if (typeIsObject(valuetype)) {
-                    blockList.jsonCycleMap.clear();
-                    msgBlock_addObject_Internal(blockList, value, fmt.depth, fmt.length);
-                    blockList.jsonCycleMap.clear();
+                    blockList.addExpandedObject(value, fmt.depth, fmt.length);
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
+                    blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
                 }
                 break;
             case 0x70: // ${i:a}
                 if (typeIsArray(valuetype)) {
-                    blockList.jsonCycleMap.clear();
-                    msgBlock_addArray_Internal(blockList, value, fmt.depth, fmt.length);
-                    blockList.jsonCycleMap.clear();
+                    blockList.addExpandedArray(value, fmt.depth, fmt.length);
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
+                    blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
                 }
                 break;
             default:
-                msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.JsBadFormatVar);
+                blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
                 break;
         }
     }
 
-    msgBlock_AddEntryToMsgBlockTagOnly(blockList, LogEntryTags.MsgEndSentinal);
-}
-
-/**
- * Log a message into the logger -- when all formatting is simple
- */
-function msgBlock_logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, args) {
-    msgBlock_EnsureDataSlots(blockList, 3 + fmt.formatterArray.length);
-    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgFormat, fmt);
-    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgLevel, level);
-
-    for (let i = 0; i < fmt.formatterArray.length; ++i) {
-        let fentry = fmt.formatterArray[i];
-        let value = undefined;
-        let valuetype = undefined
-
-        if (fentry.argPosition !== -1) {
-            if (fentry.argPosition < args.length) {
-                value = args[fentry.argPosition];
-                valuetype = typeGetName(value);
-            }
-            else {
-                //We hit a bad format value so rather than let it propigate -- report and move on.
-                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum | LogEntryTags.JsBadFormatVar, undefined);
-                continue;
-            }
-        }
-
-        switch (fentry.enum) {
-            case 0x1: // literal # 
-                //just break 
-                break;
-            case 0x2: //#ip_addr
-                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.IP_ADDR);
-                break;
-            case 0x3: //#app_name
-                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.APP_NAME);
-                break;
-            case 0x4: //#module_name
-                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.MODULE_NAME);
-                break;
-            case 0x5: //#msg_name
-                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, fmt.name);
-                break;
-            case 0x6: //#wall_time
-                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, Date.now());
-                break;
-            case 0x7: //#logical_time
-                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.LOGICAL_TIME);
-                break;
-            case 0x8: //#callback_id
-                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.CALLBACK_ID);
-                break;
-            case 0x9: //#request_id
-                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum, macroInfo.REQUEST_ID);
-                break;
-            case 0x10: // literal $
-                //just break 
-                break;
-            case 0x20: //${i:b}
-                msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum | LogEntryTags.JsVarValue, value ? true : false);
-                break;
-            case 0x30: //${i:n}
-                if (typeIsNumber(valuetype)) {
-                    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum | LogEntryTags.JsVarValue, value);
-                }
-                else {
-                    msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
-                }
-                break;
-            case 0x40: //${i:s}
-                if (typeIsString(valuetype)) {
-                    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, fentry.enum | LogEntryTags.JsVarValue, value);
-                }
-                else {
-                    msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
-                }
-                break;
-            default:
-                msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, fentry.enum | LogEntryTags.JsBadFormatVar);
-                break;
-        }
-    }
-
-    msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, LogEntryTags.MsgEndSentinal);
-}
-
-/**
- * Log a message into the logger -- when there are no additional arguments
- */
-function msgBlock_logMessageConstantString(blockList, macroInfo, level, fmt, args) {
-    msgBlock_EnsureDataSlots(blockList, 3);
-    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgFormat, fmt);
-    msgBlock_AddEntryToMsgBlock_Unchecked(blockList, LogEntryTags.MsgLevel, level);
-    msgBlock_AddEntryToMsgBlockTagOnly_Unchecked(blockList, LogEntryTags.MsgEndSentinal);
-}
-
-/**
- * The main function for logging a message to the block list.
- */
-function logMsg(blockList, macroInfo, level, fmt, args) {
-    if (fmt.formatterArray.length === 0) {
-        msgBlock_logMessageConstantString(blockList, macroInfo, level, fmt);
-    }
-    else if (fmt.allSingleSlotFormatters) {
-        msgBlock_logMessageSimpleFormatOnly(blockList, macroInfo, level, fmt, args);
-    }
-    else {
-        msgBlock_logMessageGeneral(blockList, macroInfo, level, fmt, args);
-    }
+    blockList.addTagOnlyEntry(LogEntryTags_MsgEndSentinal);
 }
 
 /////////////////////////////
@@ -885,7 +712,7 @@ function logMsg(blockList, macroInfo, level, fmt, args) {
  */
 function isLevelEnabledForWrite(cblock, cpos, trgtLevel) {
     //TODO: take this out later for performance but good initial sanity check
-    assert((cpos + 1 < cblock.count) ? cblock.tags[cpos + 1] : block.next.tags[0] === LogEntryTags.MsgLevel);
+    assert((cpos + 1 < cblock.count) ? cblock.tags[cpos + 1] : block.next.tags[0] === LogEntryTags_MsgLevel);
 
     let mlevel = (cpos + 1 < cblock.count) ? cblock.data[cpos + 1] : block.next.data[0];
     return isLogLevelEnabled(mlevel, trgtLevel);
@@ -900,19 +727,19 @@ function processMsgsForWrite(inMemoryBlockList, retainLevel, pendingWriteBlockLi
     for (let cblock = inMemoryBlockList.head; cblock !== null; cblock = cblock.next) {
         for (let pos = 0; pos < cblock.count; ++pos) {
             if (scanForMsgEnd) {
-                scanForMsgEnd = (cblock.tags[pos] !== LogEntryTags.MsgEndSentinal);
+                scanForMsgEnd = (cblock.tags[pos] !== LogEntryTags_MsgEndSentinal);
             }
             else {
-                if (cblock.tags[pos] === LogEntryTags.MsgFormat && !isLevelEnabledForWrite(cblock, pos, retainLevel)) {
+                if (cblock.tags[pos] === LogEntryTags_MsgFormat && !isLevelEnabledForWrite(cblock, pos, retainLevel)) {
                     scanForMsgEnd = true;
                 }
                 else {
-                    msgBlock_AddEntryToMsgBlock(pendingWriteBlockList, cblock.tags[pos], cblock.data[pos]);
+                    pendingWriteBlockList.addEntry(cblock.tags[pos], cblock.data[pos]);
                 }
             }
         }
     }
-    msgBlock_clearBlockList(inMemoryBlockList);
+    inMemoryBlockList.clear();
 
     if (global.processForNativeWrite) {
         process.stderr.write('Native writing is not implemented yet!!!');
@@ -1012,22 +839,22 @@ function emitter_emitSimpleVar(value, writer) {
  */
 function emitter_emitSpecialVar(tag, writer) {
     switch (tag) {
-        case LogEntryTags.JsBadFormatVar:
+        case LogEntryTags_JsBadFormatVar:
             writer.emitFullString('"<BadFormat>"');
             break;
-        case LogEntryTags.LengthBoundHit:
+        case LogEntryTags_LengthBoundHit:
             writer.emitFullString('<LengthBoundHit>"');
             break;
-        case LogEntryTags.CycleValue:
+        case LogEntryTags_CycleValue:
             writer.emitFullString('"<Cycle>"');
             break;
-        case LogEntryTags.OpaqueValue:
+        case LogEntryTags_OpaqueValue:
             writer.emitFullString('"<Value>"');
             break;
-        case LogEntryTags.OpaqueObject:
+        case LogEntryTags_OpaqueObject:
             writer.emitFullString('"<Object>"');
             break;
-        case LogEntryTags.OpaqueArray:
+        case LogEntryTags_OpaqueArray:
             writer.emitFullString('"<Array>"');
             break;
         default:
@@ -1129,11 +956,11 @@ function emitter_emitFormatEntry(emitter, tag, data) {
 
     assert(sentry.mode === EmitModes.MsgFormat, "Shound not be here then.");
 
-    if (tag === LogEntryTags.MsgEndSentinal) {
+    if (tag === LogEntryTags_MsgEndSentinal) {
         emitter_popEmitState(emitter);
     }
     else {
-        if (tag === LogEntryTags.MsgLevel) {
+        if (tag === LogEntryTags_MsgLevel) {
             //write format string to first formatter pos (or entire string if no formatters) and set the stack as needed.
             emitter_emitEntryStart(writer);
 
@@ -1174,13 +1001,13 @@ function emitter_emitFormatEntry(emitter, tag, data) {
                 writer.emitStringSpan(fmt.formatString, 0, fpos);
             }
         }
-        else if (tag === LogEntryTags.LParen) {
+        else if (tag === LogEntryTags_LParen) {
             emitter_pushObjectState(emitter);
         }
-        else if (tag === LogEntryTags.LBrack) {
+        else if (tag === LogEntryTags_LBrack) {
             emitter_pushArrayState(emitter);
         }
-        else if (tag === LogEntryTags.JsBadFormatVar || tag === LogEntryTags.OpaqueValue) {
+        else if (tag === LogEntryTags_JsBadFormatVar || tag === LogEntryTags_OpaqueValue) {
             emitter_emitSpecialVar(dataTag, writer);
         }
         else {
@@ -1225,11 +1052,11 @@ function emitter_emitObjectEntry(emitter, tag, data) {
 
     assert(sentry.mode === EmitModes.ObjectLevel, "Shound not be here then.");
 
-    if (tag === LogEntryTags.RParen) {
+    if (tag === LogEntryTags_RParen) {
         emitter_popEmitState(emitter);
     }
     else {
-        if (tag === LogEntryTags.PropertyRecord) {
+        if (tag === LogEntryTags_PropertyRecord) {
             if (emitStack_checkAndUpdateNeedsComma(sentry)) {
                 writer.emitFullString(', ');
             }
@@ -1237,13 +1064,13 @@ function emitter_emitObjectEntry(emitter, tag, data) {
             emitter_emitJsString(data, writer);
             writer.emitFullString(': ');
         }
-        else if (tag === LogEntryTags.LParen) {
+        else if (tag === LogEntryTags_LParen) {
             emitter_pushObjectState(emitter);
         }
-        else if (tag === LogEntryTags.LBrack) {
+        else if (tag === LogEntryTags_LBrack) {
             emitter_pushArrayState(emitter);
         }
-        else if (tag === LogEntryTags.JsVarValue) {
+        else if (tag === LogEntryTags_JsVarValue) {
             emitter_emitSimpleVar(data, writer);
         }
         else {
@@ -1261,7 +1088,7 @@ function emitter_emitArrayEntry(emitter, tag, data) {
 
     assert(sentry.mode === EmitModes.ObjectLevel, "Shound not be here then.");
 
-    if (tag === LogEntryTags.RBrack) {
+    if (tag === LogEntryTags_RBrack) {
         emitter_popEmitState(emitter);
     }
     else {
@@ -1269,13 +1096,13 @@ function emitter_emitArrayEntry(emitter, tag, data) {
             writer.emitFullString(', ');
         }
 
-        if (tag === LogEntryTags.LParen) {
+        if (tag === LogEntryTags_LParen) {
             emitter_pushObjectState(emitter);
         }
-        else if (tag === LogEntryTags.LBrack) {
+        else if (tag === LogEntryTags_LBrack) {
             emitter_pushArrayState(emitter);
         }
-        else if (tag === LogEntryTags.JsVarValue) {
+        else if (tag === LogEntryTags_JsVarValue) {
             emitter_emitSimpleVar(data, writer);
         }
         else {
@@ -1312,7 +1139,7 @@ function emitter_ProcessLoop(emitter) {
         let tag = emitter.block.tags[emitter.pos];
         let data = emitter.block.data[emitter.pos];
 
-        if (tag === LogEntryTags.MsgFormat) {
+        if (tag === LogEntryTags_MsgFormat) {
             emitter_pushFormatState(emitter, data);
         }
         else {
@@ -1328,7 +1155,7 @@ function emitter_ProcessLoop(emitter) {
             emitter.pos = 0;
         }
 
-        if (tag === LogEntryTags.MsgEndSentinal) {
+        if (tag === LogEntryTags_MsgEndSentinal) {
             flush = emitter.writer.needsToDrain();
         }
     }
@@ -1387,8 +1214,8 @@ exports.SystemInfoLevels = SystemInfoLevels;
 exports.createMsgFormat = extractMsgFormat;
 
 //Export function for logging a message into the in-memory logging buffer
-exports.createBlockList = msgBlock_createBlockList;
-exports.logMsg = logMsg;
+exports.createBlockList = createBlockList;
+exports.logMsg = logMessage;
 
 //Export a function to filter in-memory messages into a block for emit
 exports.processMsgsForWrite = processMsgsForWrite;
