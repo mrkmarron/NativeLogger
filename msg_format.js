@@ -71,44 +71,52 @@ const DEFAULT_EXPAND_ARRAY_LENGTH = 128;
 
 /////////////////////////////
 //Generally useful code
+const TypeNameEnum_Undefined = 0x1;
+const TypeNameEnum_Null = 0x2;
+const TypeNameEnum_Boolean = 0x4;
+const TypeNameEnum_Number = 0x8;
 
+const TypeNameEnum_String = 0x10;
+const TypeNameEnum_Date = 0x20;
+const TypeNameEnum_Function = 0x40;
+
+const TypeNameEnum_Object = 0x100;
+const TypeNameEnum_JsArray = 0x200;
+const TypeNameEnum_TypedArray = 0x400;
+
+const TypeNameEnum_Unknown = 0x1000;
+
+const TypeNameEnum_SimpleType = (TypeNameEnum_Undefined | TypeNameEnum_Null | TypeNameEnum_Boolean | TypeNameEnum_Number);
+const TypeNameEnum_AnyArray = (TypeNameEnum_JsArray | TypeNameEnum_TypedArray);
+
+const TypeNameToFlagEnum = {
+    '[object Undefined]': TypeNameEnum_Undefined,
+    '[object Null]': TypeNameEnum_Null,
+    '[object Boolean]': TypeNameEnum_Boolean,
+    '[object Number]': TypeNameEnum_Number,
+    '[object String]': TypeNameEnum_String,
+    '[object Date]': TypeNameEnum_Date,
+    '[object Function]': TypeNameEnum_Function,
+    '[object Object]': TypeNameEnum_Object,
+    '[object Array]': TypeNameEnum_JsArray,
+    '[object Float32Array]': TypeNameEnum_TypedArray,
+    '[object Float64Array]': TypeNameEnum_TypedArray,
+    '[object Int8Array]': TypeNameEnum_TypedArray,
+    '[object Int16Array]': TypeNameEnum_TypedArray,
+    '[object Int32Array]': TypeNameEnum_TypedArray,
+    '[object Uint8Array]': TypeNameEnum_TypedArray,
+    '[object Uint16Array]': TypeNameEnum_TypedArray,
+    '[object Uint32Array]': TypeNameEnum_TypedArray
+};
+
+/**
+ * Get the enumeration tag for the type of value
+ * @function
+ * @param {*} value 
+ * @return {number} 
+ */
 function typeGetName(value) {
-    return toString.call(value);
-}
-
-function typeIsSimple(typename) {
-    return (typename === '[object Undefined]' || typename === '[object Null]');
-}
-
-function typeIsBoolean(typename) {
-    return (typename === '[object Boolean]');
-}
-
-function typeIsNumber(typename) {
-    return (typename === '[object Number]');
-}
-
-function typeIsString(typename) {
-    return (typename === '[object String]');
-}
-
-function typeIsDate(typename) {
-    return (typename === '[object Date]');
-}
-
-function typeIsFunction(typename) {
-    return (typename === '[object Function]');
-}
-
-function typeIsObject(typename) {
-    return (typename === '[object Object]');
-}
-
-function typeIsArray(typename) {
-    return (typename === '[object Array]' ||
-        typename === '[object Float32Array]' || typename === '[object Float64Array]' ||
-        typename === '[object Int8Array]' || typename === '[object Int16Array]' || typename === '[object Int32Array]' ||
-        typename === '[object Uint8Array]' || typename === '[object Uint16Array]' || typename === '[object Uint32Array]');
+    return TypeNameToFlagEnum[toString.call(value)] || TypeNameEnum_Unknown;
 }
 
 /////////////////////////////
@@ -214,10 +222,10 @@ function msgFormat_CreateCompundFormatter(formatTag, argListPosition, formatStri
 function msgFormat_expandToJsonFormatter(jobj) {
     let typename = typeGetName(jobj);
 
-    if (typeIsSimple(typename) || typeIsNumber(typename)) {
+    if ((typename & TypeNameEnum_SimpleType) ===  typename) {
         return JSON.stringify(jobj);
     }
-    else if (typeIsString(typename)) {
+    else if (typename === TypeNameEnum_String) {
         if (s_expandoStringRe.test(jobj) || s_basicFormatStringRe.test(jobj) || s_compoundFormatStringRe.test(jobj)) {
             return jobj;
         }
@@ -225,19 +233,19 @@ function msgFormat_expandToJsonFormatter(jobj) {
             return '"' + jobj + '"';
         }
     }
-    else if (typeIsArray(typename)) {
-        return '[ '
-            + jobj
-                .map(function (value) { return msgFormat_expandToJsonFormatter(value); })
-                .join(', ')
-            + ' ]';
-    }
-    else if (typeIsObject(typename)) {
+     else if (typename === TypeNameEnum_Object) {
         return '{ '
             + Object.keys(jobj)
                 .map(function (key) { return '"' + key + '"' + ': ' + msgFormat_expandToJsonFormatter(jobj[key]); })
                 .join(', ')
             + ' }';
+    }
+    else if (typename === TypeNameEnum_JsArray) {
+        return '[ '
+            + jobj
+                .map(function (value) { return msgFormat_expandToJsonFormatter(value); })
+                .join(', ')
+            + ' ]';
     }
     else {
         return '"' + jobj.toString() + '"';
@@ -363,7 +371,7 @@ function extractMsgFormat(fmtName, fmtInfo) {
     }
     else {
         let typename = typeGetName(fmtInfo);
-        if (!typeIsArray(typeGetName) && !typeIsObject(typename)) {
+        if (typename !== TypeNameEnum_JsArray && typename !== TypeNameEnum_Object) {
             throw new Error('Format description options are string | object layout | array layout.');
         }
 
@@ -429,170 +437,204 @@ const LogEntryTags_OpaqueArray = 15;
  */
 const s_msgBlockSize = 1024;
 
-/**
- * Create a blocklist
- */
-function createBlockList() {
-    //internal function for allocating a block in the list
-    function createMsgBlock(previousBlock) {
-        const nblock = {
-            count: 0,
-            tags: new Uint8Array(s_msgBlockSize),
-            data: new Array(s_msgBlockSize),
-            next: null,
-            previous: previousBlock
-        };
+//internal function for allocating a block
+function createMsgBlock(previousBlock) {
+    const nblock = {
+        count: 0,
+        tags: new Uint8Array(s_msgBlockSize),
+        data: new Array(s_msgBlockSize),
+        next: null,
+        previous: previousBlock
+    };
 
-        if (previousBlock) {
-            previousBlock.next = nblock;
-        }
-
-        return nblock;
+    if (previousBlock) {
+        previousBlock.next = nblock;
     }
 
-    const iblock = createMsgBlock(null);
-    return {
-        head: iblock,
-        tail: iblock,
-        jsonCycleMap: new Set(),
+    return nblock;
+}
 
-        //Clear the contents of the block list
-        clear: function () {
-            this.head.tags.fill(LogEntryTags_Clear, this.head.count);
-            this.head.data.fill(undefined, this.head.count);
-            this.head.count = 0;
-            this.head.next = null;
+/**
+ * BlockList constructor
+ * @class
+ */
+function BlockList() {
+    this.head = createMsgBlock(null);
+    this.tail = this.head;
+    this.jsonCycleMap = new Set();
+}
 
-            this.tail = this.head;
-        },
+/**
+ * Clear the contents of the block list
+ * @method
+ */
+BlockList.prototype.clear = function () {
+    this.head.tags.fill(LogEntryTags_Clear, this.head.count);
+    this.head.data.fill(undefined, this.head.count);
+    this.head.count = 0;
+    this.head.next = null;
 
-        //Add an entry to the message block
-        addEntry: function(tag, data) {
-            let block = this.tail;
-            if (block.count === s_msgBlockSize) {
-                block = createMsgBlock(block);
-                this.tail = block;
-            }
+    this.tail = this.head;
+};
 
-            block.tags[block.count] = tag;
-            block.data[block.count] = data;
-            block.count++;
-        },
+/**
+ * Add an entry to the message block
+ * @method
+ * @param {number} tag the tag for the entry
+ * @param {*} data the data value for the entry
+ */
+BlockList.prototype.addEntry = function (tag, data) {
+    let block = this.tail;
+    if (block.count === s_msgBlockSize) {
+        block = createMsgBlock(block);
+        this.tail = block;
+    }
 
-        //Add an entry to the message block that has the common JsVarValue tag
-        addJsVarValueEntry: function (data) {
-            let block = this.tail;
-            if (block.count === s_msgBlockSize) {
-                block = createMsgBlock(block);
-                this.tail = block;
-            }
+    block.tags[block.count] = tag;
+    block.data[block.count] = data;
+    block.count++;
+};
 
-            block.tags[block.count] = LogEntryTags_JsVarValue;
-            block.data[block.count] = data;
-            block.count++;
-        },
+/**
+ * Add an entry to the message block that has the common JsVarValue tag
+ * @method
+ * @param {*} data the data value for the entry
+ */
+BlockList.prototype.addJsVarValueEntry = function (data) {
+    let block = this.tail;
+    if (block.count === s_msgBlockSize) {
+        block = createMsgBlock(block);
+        this.tail = block;
+    }
 
-        //Add an entry to the message block that has no extra data
-        addTagOnlyEntry: function (tag) {
-            let block = this.tail;
-            if (block.count === s_msgBlockSize) {
-                block = createMsgBlock(block);
-                this.tail = block;
-            }
+    block.tags[block.count] = LogEntryTags_JsVarValue;
+    block.data[block.count] = data;
+    block.count++;
+};
 
-            block.tags[block.count] = tag;
-            block.count++;
-        },
+/**
+ * Add an entry to the message block that has no extra data
+ * @method
+ * @param {number} tag the tag value for the entry
+ */
+BlockList.prototype.addTagOnlyEntry = function (tag) {
+    let block = this.tail;
+    if (block.count === s_msgBlockSize) {
+        block = createMsgBlock(block);
+        this.tail = block;
+    }
 
-        //Add an expanded object value to the log
-        addExpandedObject: function(obj, depth, length) {
-            //if the value is in the set and is currently processing
-            if (this.jsonCycleMap.has(obj)) {
-                this.addTagOnlyEntry(LogEntryTags_CycleValue);
-                return;
-            }
+    block.tags[block.count] = tag;
+    block.count++;
+};
 
-            if (depth === 0) {
-                this.addTagOnlyEntry(LogEntryTags_OpaqueObject);
-            }
-            else {
-                //Set processing as true for cycle detection
-                this.jsonCycleMap.add(obj);
-                this.addTagOnlyEntry(LogEntryTags_LParen);
+/**
+ * Add an expanded object value to the log
+ * @method
+ * @param {Object} obj the object to expand into the log
+ * @param {number} depth the max depth to recursively expand the object
+ * @param {number} length the max number of properties to expand
+ */
+BlockList.prototype.addExpandedObject = function (obj, depth, length) {
+    //if the value is in the set and is currently processing
+    if (this.jsonCycleMap.has(obj)) {
+        this.addTagOnlyEntry(LogEntryTags_CycleValue);
+        return;
+    }
 
-                let allowedLengthRemain = length;
-                for (let p in obj) {
-                    this.addEntry(LogEntryTags_PropertyRecord, p);
-                    this.addGeneralValue(obj[p], depth - 1);
+    if (depth === 0) {
+        this.addTagOnlyEntry(LogEntryTags_OpaqueObject);
+    }
+    else {
+        //Set processing as true for cycle detection
+        this.jsonCycleMap.add(obj);
+        this.addTagOnlyEntry(LogEntryTags_LParen);
 
-                    allowedLengthRemain--;
-                    if (allowedLengthRemain <= 0) {
-                        this.addTagOnlyEntry(LogEntryTags_LengthBoundHit);
-                        break;
-                    }
-                }
+        let allowedLengthRemain = length;
+        for (let p in obj) {
+            this.addEntry(LogEntryTags_PropertyRecord, p);
+            this.addGeneralValue(obj[p], depth - 1);
 
-                //Set processing as false for cycle detection
-                this.jsonCycleMap.delete(obj);
-                this.addTagOnlyEntry(LogEntryTags_RParen);
-            }
-        },
-
-        //Add an expanded array value to the log
-        addExpandedArray(obj, depth, length) {
-            //if the value is in the set and is currently processing
-            if (this.jsonCycleMap.has(obj)) {
-                this.addTagOnlyEntry(LogEntryTags_CycleValue);
-                return;
-            }
-
-            if (depth === 0) {
-                this.addTagOnlyEntry(LogEntryTags_OpaqueObject);
-            }
-            else {
-                //Set processing as true for cycle detection
-                this.jsonCycleMap.add(obj);
-                this.addTagOnlyEntry(LogEntryTags_LBrack);
-
-                for (let i = 0; i < obj.length; ++i) {
-                    this.addGeneralValue(obj[i], depth - 1);
-
-                    if (i >= length) {
-                        this.addTagOnlyEntry(LogEntryTags_LengthBoundHit);
-                        break;
-                    }
-                }
-
-                //Set processing as false for cycle detection
-                this.jsonCycleMap.delete(obj);
-                this.addTagOnlyEntry(LogEntryTags_RBrack);
-            }
-        },
-
-        //Add a value using default formatting parameters
-        addGeneralValue: function(value, depth) {
-            const typename = typeGetName(value);
-            if (typeIsSimple(typename) || typeIsBoolean(typename) || typeIsNumber(typename) || typeIsString(typename)) {
-                this.addJsVarValueEntry(value);
-            }
-            else if (typeIsDate(typename)) {
-                this.addJsVarValueEntry(new Date(value));
-            }
-            else if (typeIsFunction(typename)) {
-                this.addJsVarValueEntry('[ #Function# ' + value.name + ' ]');
-            }
-            else if (typeIsObject(typename)) {
-                this.addExpandedObject(value, depth, DEFAULT_EXPAND_OBJECT_LENGTH);
-            }
-            else if (typeIsArray(typename)) {
-                this.addExpandedArray(value, depth, DEFAULT_EXPAND_ARRAY_LENGTH);
-            }
-            else {
-                this.addTagOnlyEntry(LogEntryTags_OpaqueObject);
+            allowedLengthRemain--;
+            if (allowedLengthRemain <= 0) {
+                this.addTagOnlyEntry(LogEntryTags_LengthBoundHit);
+                break;
             }
         }
-    };
-}
+
+        //Set processing as false for cycle detection
+        this.jsonCycleMap.delete(obj);
+        this.addTagOnlyEntry(LogEntryTags_RParen);
+    }
+};
+
+/**
+ * Add an expanded array value to the log
+ * @method
+ * @param {Array} obj the array to expand into the log
+ * @param {number} depth the max depth to recursively expand the array
+ * @param {number} length the max number of index entries to expand
+ */
+BlockList.prototype.addExpandedArray = function (obj, depth, length) {
+    //if the value is in the set and is currently processing
+    if (this.jsonCycleMap.has(obj)) {
+        this.addTagOnlyEntry(LogEntryTags_CycleValue);
+        return;
+    }
+
+    if (depth === 0) {
+        this.addTagOnlyEntry(LogEntryTags_OpaqueObject);
+    }
+    else {
+        //Set processing as true for cycle detection
+        this.jsonCycleMap.add(obj);
+        this.addTagOnlyEntry(LogEntryTags_LBrack);
+
+        for (let i = 0; i < obj.length; ++i) {
+            this.addGeneralValue(obj[i], depth - 1);
+
+            if (i >= length) {
+                this.addTagOnlyEntry(LogEntryTags_LengthBoundHit);
+                break;
+            }
+        }
+
+        //Set processing as false for cycle detection
+        this.jsonCycleMap.delete(obj);
+        this.addTagOnlyEntry(LogEntryTags_RBrack);
+    }
+};
+
+/**
+ * Add a value  to the log using the default formatting options
+ * @method
+ * @param {*} value the value to expand into the log
+ * @param {number} depth the max depth to recursively expand the value (if an object or array)
+ */
+BlockList.prototype.addGeneralValue = function (value, depth) {
+    const typename = typeGetName(value);
+    if ((typename & TypeNameEnum_SimpleType) === typename) {
+        this.addJsVarValueEntry(value);
+    }
+    else if (typename == TypeNameEnum_String) {
+        this.addJsVarValueEntry(value);
+    }
+    else if (typename === TypeNameEnum_Date) {
+        this.addJsVarValueEntry(new Date(value));
+    }
+    else if (typename === TypeNameEnum_Function) {
+        this.addJsVarValueEntry('[ #Function# ' + value.name + ' ]');
+    }
+    else if (typename === TypeNameEnum_Object) {
+        this.addExpandedObject(value, depth, DEFAULT_EXPAND_OBJECT_LENGTH);
+    }
+    else if ((typename & TypeNameEnum_AnyArray) == typename) {
+        this.addExpandedArray(value, depth, DEFAULT_EXPAND_ARRAY_LENGTH);
+    }
+    else {
+        this.addTagOnlyEntry(LogEntryTags_OpaqueObject);
+    }
+};
 
 ////////
 
@@ -653,7 +695,7 @@ function logMessage(blockList, macroInfo, level, fmt, args) {
                 //just break 
                 break;
             case 0x20: //${i:b}
-                if (typeIsSimple(valuetype) || typeIsBoolean(valuetype) || typeIsNumber(valuetype)) {
+                if ((valuetype & TypeNameEnum_SimpleType) === valuetype) {
                     blockList.addJsVarValueEntry(value ? true : false);
                 }
                 else {
@@ -661,7 +703,7 @@ function logMessage(blockList, macroInfo, level, fmt, args) {
                 }
                 break;
             case 0x30: //${i:n}
-                if (typeIsNumber(valuetype)) {
+                if (valuetype == TypeNameEnum_Number) {
                     blockList.addJsVarValueEntry(value);
                 }
                 else {
@@ -669,7 +711,7 @@ function logMessage(blockList, macroInfo, level, fmt, args) {
                 }
                 break;
             case 0x40: //${i:s}
-                if (typeIsString(valuetype)) {
+                if (valuetype === TypeNameEnum_String) {
                     blockList.addJsVarValueEntry(value);
                 }
                 else {
@@ -680,7 +722,7 @@ function logMessage(blockList, macroInfo, level, fmt, args) {
                 blockList.addGeneralValue(blockList, value, DEFAULT_EXPAND_DEPTH);
                 break;
             case 0x60: // ${i:o}
-                if (typeIsObject(valuetype)) {
+                if (valuetype === TypeNameEnum_Object) {
                     blockList.addExpandedObject(value, fmt.depth, fmt.length);
                 }
                 else {
@@ -688,7 +730,7 @@ function logMessage(blockList, macroInfo, level, fmt, args) {
                 }
                 break;
             case 0x70: // ${i:a}
-                if (typeIsArray(valuetype)) {
+                if ((valuetype & TypeNameEnum_AnyArray) === valuetype) {
                     blockList.addExpandedArray(value, fmt.depth, fmt.length);
                 }
                 else {
@@ -1135,7 +1177,7 @@ function emitter_emitMsg(emitter) {
  */
 function emitter_ProcessLoop(emitter) {
     let flush = false;
-    while (emitter.block !== null && !flush) {
+    while (emitter.block !== null && emitter.pos != emitter.block.count && !flush) {
         let tag = emitter.block.tags[emitter.pos];
         let data = emitter.block.data[emitter.pos];
 
@@ -1214,7 +1256,7 @@ exports.SystemInfoLevels = SystemInfoLevels;
 exports.createMsgFormat = extractMsgFormat;
 
 //Export function for logging a message into the in-memory logging buffer
-exports.createBlockList = createBlockList;
+exports.createBlockList = function createBlockList() { return new BlockList(); }
 exports.logMsg = logMessage;
 
 //Export a function to filter in-memory messages into a block for emit
