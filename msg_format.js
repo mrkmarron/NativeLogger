@@ -71,23 +71,26 @@ const DEFAULT_EXPAND_ARRAY_LENGTH = 128;
 
 /////////////////////////////
 //Generally useful code
-const TypeNameEnum_Undefined = 0x1;
-const TypeNameEnum_Null = 0x2;
-const TypeNameEnum_Boolean = 0x4;
-const TypeNameEnum_Number = 0x8;
+const TypeNameEnum_Undefined = 1;
+const TypeNameEnum_Null = 2;
+const TypeNameEnum_Boolean = 3;
+const TypeNameEnum_Number = 4;
 
-const TypeNameEnum_String = 0x10;
-const TypeNameEnum_Date = 0x20;
-const TypeNameEnum_Function = 0x40;
+const TypeNameEnum_String = 5;
+const TypeNameEnum_Date = 6;
+const TypeNameEnum_Function = 7;
 
-const TypeNameEnum_Object = 0x100;
-const TypeNameEnum_JsArray = 0x200;
-const TypeNameEnum_TypedArray = 0x400;
+const TypeNameEnum_Object = 8;
+const TypeNameEnum_JsArray = 9;
+const TypeNameEnum_TypedArray = 10;
 
-const TypeNameEnum_Unknown = 0x1000;
+const TypeNameEnum_Unknown = 11;
+const TypeNameEnum_Limit = 12;
 
-const TypeNameEnum_SimpleType = (TypeNameEnum_Undefined | TypeNameEnum_Null | TypeNameEnum_Boolean | TypeNameEnum_Number);
-const TypeNameEnum_AnyArray = (TypeNameEnum_JsArray | TypeNameEnum_TypedArray);
+////
+//Useful cutoffs for TypeNameEnums
+const TypeNameEnum_LastPrimitiveType = TypeNameEnum_Number;
+const TypeNameEnum_LastSimpleType = TypeNameEnum_String;
 
 const TypeNameToFlagEnum = {
     '[object Undefined]': TypeNameEnum_Undefined,
@@ -115,117 +118,120 @@ const TypeNameToFlagEnum = {
  * @param {*} value 
  * @return {number} 
  */
-function typeGetName(value) {
+function typeGetIdTag(value) {
     return TypeNameToFlagEnum[toString.call(value)] || TypeNameEnum_Unknown;
 }
 
 /////////////////////////////
 //Code for manipulating message format representations
 
-function fse_generateLiteralEntry(name, label, enumval) {
-    return { name: name, label: label, kind: 'literal', enum: enumval };
-}
+/**
+ * Tag values indicating the kind of each format entry
+ */
+const FormatStringEntryKind_Literal = 1;
+const FormatStringEntryKind_Expando = 2;
+const FormatStringEntryKind_Basic = 3;
+const FormatStringEntryKind_Compound = 4;
 
-function fse_generateExpandoEntry(name, label, enumval) {
-    return { name: name, label: label, kind: 'expando', enum: enumval };
-}
-
-function fse_generateBasicFormatterEntry(name, label, enumval) {
-    return { name: name, label: label, kind: 'basicFormat', enum: enumval };
-}
-
-function fse_generateCompundFormatterEntry(name, label, enumval) {
-    return { name: name, label: label, kind: 'compundFormat', enum: enumval };
+/**
+ * Create a format string entry
+ * @function
+ * @param {string} name the name to use in the macroInfo object when extracting
+ * @param {number} kind the FormatStringEntryKind_X tag
+ * @param {string} label the string label that appears in a format string
+ * @param {number} tag a unique incremented tag for fast integer compare
+ * @param {bool} isSingleSlot true if this format is always stored in a single slot
+ */
+function generateSingletonFormatStringEntry(name, kind, label, tag, isSingleSlot) {
+    return { name: name, kind: kind, label: label, enum: tag, isSingleSlot: isSingleSlot };
 }
 
 /**
- * Tag values indicating the kind of each entry in the native log.
+ * Object singletons for format entries
  */
-let FormatStringEntryTag = {
-    LITERAL_HASH: fse_generateLiteralEntry('LITERAL_HASH', '#', 0x1),
-    IP_ADDR: fse_generateExpandoEntry('IP_ADDR', '#ip_addr', 0x2),
-    APP_NAME: fse_generateExpandoEntry('APP_NAME', '#app_name', 0x3),
-    MODULE_NAME: fse_generateExpandoEntry('MODULE_NAME', '#module_name', 0x4),
-    MSG_NAME: fse_generateExpandoEntry('MSG_NAME', '#msg_name', 0x5),
-    WALLTIME: fse_generateExpandoEntry('WALL_TIME', '#wall_time', 0x6),
-    LOGICAL_TIME: fse_generateExpandoEntry('LOGICAL_TIME', '#logical_time', 0x7),
-    CALLBACK_ID: fse_generateExpandoEntry('CALLBACK_ID', '#callback_id', 0x8),
-    REQUEST_ID: fse_generateExpandoEntry('REQUEST_ID', '#request_id', 0x9),
+const FormatStringEntrySingletons = {
+    LITERAL_HASH: generateSingletonFormatStringEntry('LITERAL_HASH', FormatStringEntryKind_Literal, '#', 1, true),
+    IP_ADDR: generateSingletonFormatStringEntry('IP_ADDR', FormatStringEntryKind_Expando, '#ip_addr', 2, true),
+    APP_NAME: generateSingletonFormatStringEntry('APP_NAME', FormatStringEntryKind_Expando, '#app_name', 3, true),
+    MODULE_NAME: generateSingletonFormatStringEntry('MODULE_NAME', FormatStringEntryKind_Expando, '#module_name', 4, true),
+    LOGICAL_TIME: generateSingletonFormatStringEntry('LOGICAL_TIME', FormatStringEntryKind_Expando, '#logical_time', 5, true),
+    CALLBACK_ID: generateSingletonFormatStringEntry('CALLBACK_ID', FormatStringEntryKind_Expando, '#callback_id', 6, true),
+    REQUEST_ID: generateSingletonFormatStringEntry('REQUEST_ID', FormatStringEntryKind_Expando, '#request_id', 7, true),
 
-    LITERAL_DOLLAR: fse_generateLiteralEntry('LITERAL_DOLLAR', '$', 0x10),
-    BOOL_VAL: fse_generateBasicFormatterEntry('BOOL_VAL', 'b', 0x20), //${p:b}
-    NUMBER_VAL: fse_generateBasicFormatterEntry('NUMBER_VAL', 'n', 0x30), //${p:n}
-    STRING_VAL: fse_generateBasicFormatterEntry('STRING_VAL', 's', 0x40), //${p:s}
-    GENERAL_VAL: fse_generateBasicFormatterEntry('GENERAL_VAL', 'g', 0x50), //${p:g}
-    OBJECT_VAL: fse_generateCompundFormatterEntry('OBJECT_VAL', 'o', 0x60), //${p:o<d,l>}
-    ARRAY_VAL: fse_generateCompundFormatterEntry('ARRAY_VAL', 'a', 0x70) //${p:a<d,l>}
+    MSG_NAME: generateSingletonFormatStringEntry('MSG_NAME', FormatStringEntryKind_Expando, '#msg_name', 8, true),
+    WALLTIME: generateSingletonFormatStringEntry('WALL_TIME', FormatStringEntryKind_Expando, '#wall_time', 9, true),
+
+    LITERAL_DOLLAR: generateSingletonFormatStringEntry('LITERAL_DOLLAR', FormatStringEntryKind_Literal, '$', 10, true),
+    BOOL_VAL: generateSingletonFormatStringEntry('BOOL_VAL', FormatStringEntryKind_Basic, 'b', 11, true), //${p:b}
+    NUMBER_VAL: generateSingletonFormatStringEntry('NUMBER_VAL', FormatStringEntryKind_Basic, 'n', 12, true), //${p:n}
+    STRING_VAL: generateSingletonFormatStringEntry('STRING_VAL', FormatStringEntryKind_Basic, 's', 13, true), //${p:s}
+    GENERAL_VAL: generateSingletonFormatStringEntry('GENERAL_VAL', FormatStringEntryKind_Basic, 'g', 14, false), //${p:g}
+    OBJECT_VAL: generateSingletonFormatStringEntry('OBJECT_VAL', FormatStringEntryKind_Compound, 'o', 15, false), //${p:o<d,l>}
+    ARRAY_VAL: generateSingletonFormatStringEntry('ARRAY_VAL', FormatStringEntryKind_Compound, 'a', 16, false) //${p:a<d,l>}
 };
 
-let s_expandoEntries = Object.keys(FormatStringEntryTag)
-    .filter(function (value) { return FormatStringEntryTag[value].kind === 'expando'; })
-    .map(function (value) { return FormatStringEntryTag[value]; });
+const FormatStringEntrySingleton_LastMacroInfoExpandoEnum = FormatStringEntrySingletons.REQUEST_ID.enum;
+const FormatStringEntrySingleton_LastBasicFormatterEnum = FormatStringEntrySingletons.STRING_VAL.enum;
+const FormatStringEntrySingleton_EnumLimit = FormatStringEntrySingletons.STRING_VAL.enum + 1;
 
-let s_basicFormatEntries = Object.keys(FormatStringEntryTag)
-    .filter(function (value) { return FormatStringEntryTag[value].kind === 'basicFormat'; })
-    .map(function (value) { return FormatStringEntryTag[value]; });
+const s_expandoEntries = Object.keys(FormatStringEntrySingletons)
+    .filter(function (value) { return FormatStringEntrySingletons[value].kind === FormatStringEntryKind_Expando; })
+    .map(function (value) { return FormatStringEntrySingletons[value]; });
 
-let s_compoundFormatEntries = Object.keys(FormatStringEntryTag)
-    .filter(function (value) { return FormatStringEntryTag[value].kind === 'compundFormat'; })
-    .map(function (value) { return FormatStringEntryTag[value]; });
+const s_basicFormatEntries = Object.keys(FormatStringEntrySingletons)
+    .filter(function (value) { return FormatStringEntrySingletons[value].kind === FormatStringEntryKind_Basic; })
+    .map(function (value) { return FormatStringEntrySingletons[value]; });
 
-let s_expandoStringRe = new RegExp('^('
+const s_compoundFormatEntries = Object.keys(FormatStringEntrySingletons)
+    .filter(function (value) { return FormatStringEntrySingletons[value].kind === FormatStringEntryKind_Compound; })
+    .map(function (value) { return FormatStringEntrySingletons[value]; });
+
+const s_expandoStringRe = new RegExp('^('
     + s_expandoEntries
         .map(function (value) { return value.label; })
         .join('|')
     + ')$');
 
-let s_basicFormatStringRe = new RegExp('^\\${(\\d+):('
+const s_basicFormatStringRe = new RegExp('^\\${(\\d+):('
     + s_basicFormatEntries
         .map(function (value) { return value.label; })
         .join('|')
     + ')}$');
 
-let s_compoundFormatStringRe = new RegExp('^\\${(\\d+):('
+const s_compoundFormatStringRe = new RegExp('^\\${(\\d+):('
     + s_compoundFormatEntries
         .map(function (value) { return value.label; })
         .join('|')
     + ')(<(\\d+|\\*)?,(\\d+|\\*)?>)}$');
 
-function isSingleSlotFormatter(formatTag) {
-    return formatTag.enum <= FormatStringEntryTag.STRING_VAL.enum;
-}
-
-/**
- * Construct a msgFormat entry for an expando.
- */
-function msgFormat_CreateExpando(formatTag, formatStringStart, formatStringEnd) {
-    return { format: formatTag, formatStart: formatStringStart, formatEnd: formatStringEnd };
-}
-
-/**
- * Construct a msgFormat entry for a simple formatter.
- */
-function msgFormat_CreateBasicFormatter(formatTag, argListPosition, formatStringStart, formatStringEnd) {
-    return { format: formatTag, argPosition: argListPosition, formatStart: formatStringStart, formatEnd: formatStringEnd };
-}
-
 /**
  * Construct a msgFormat entry for a compound formatter.
+ * @function
+ * @param {Object} formatTag the FormatStringEntrySingleton for this entry
+ * @param {number} formatStringStart the index that the format text starts at in the format string
+ * @param {number} formatStringEnd the index (1 after) the end of the format text in the format string
+ * @param {number} argListPosition the (optional) position to find the format arg in the arg list
+ * @param {number} formatExpandDepth the (optional) max depth to expand the argument object
+ * @param {number} formatExpandLength the (optional) max number of properties/array length to expand the argument object
+ * @returns {Object} a message format entry
  */
-function msgFormat_CreateCompundFormatter(formatTag, argListPosition, formatStringStart, formatStringEnd, formatExpandDepth, formatExpandLength) {
-    return { format: formatTag, argPosition: argListPosition, formatStart: formatStringStart, formatEnd: formatStringEnd, expandDepth: formatExpandDepth, expandLength: formatExpandLength };
+function createMsgFormatEntry(formatTag, formatStringStart, formatStringEnd, argListPosition, formatExpandDepth, formatExpandLength) {
+    return { format: formatTag, formatStart: formatStringStart, formatEnd: formatStringEnd, argPosition: argListPosition, expandDepth: formatExpandDepth, expandLength: formatExpandLength };
 }
 
 /**
  * Take an array or object literal format representation and convert it to json string format representation.
+ * @function
+ * @param {*} jobj
+ * @returns {string}
  */
-function msgFormat_expandToJsonFormatter(jobj) {
-    let typename = typeGetName(jobj);
+function expandToJsonFormatter(jobj) {
+    let typeid = typeGetIdTag(jobj);
 
-    if ((typename & TypeNameEnum_SimpleType) ===  typename) {
+    if ((typeid === TypeNameEnum_Undefined) || (typeid === TypeNameEnum_Null) || (typeid === TypeNameEnum_Boolean) || (typeid === TypeNameEnum_Number)) {
         return JSON.stringify(jobj);
     }
-    else if (typename === TypeNameEnum_String) {
+    else if (typeid === TypeNameEnum_String) {
         if (s_expandoStringRe.test(jobj) || s_basicFormatStringRe.test(jobj) || s_compoundFormatStringRe.test(jobj)) {
             return jobj;
         }
@@ -233,17 +239,18 @@ function msgFormat_expandToJsonFormatter(jobj) {
             return '"' + jobj + '"';
         }
     }
-     else if (typename === TypeNameEnum_Object) {
+    else if (typeid === TypeNameEnum_Object) {
         return '{ '
             + Object.keys(jobj)
-                .map(function (key) { return '"' + key + '"' + ': ' + msgFormat_expandToJsonFormatter(jobj[key]); })
+                .sort()
+                .map(function (key) { return '"' + key + '"' + ': ' + expandToJsonFormatter(jobj[key]); })
                 .join(', ')
             + ' }';
     }
-    else if (typename === TypeNameEnum_JsArray) {
+    else if (typeid === TypeNameEnum_JsArray) {
         return '[ '
             + jobj
-                .map(function (value) { return msgFormat_expandToJsonFormatter(value); })
+                .map(function (value) { return expandToJsonFormatter(value); })
                 .join(', ')
             + ' ]';
     }
@@ -253,11 +260,15 @@ function msgFormat_expandToJsonFormatter(jobj) {
 }
 
 /**
- * Helper function to extract and construct an expando format specifier or throws is the expando is malformed
+ * Helper function to extract and construct an expando format specifier or throws is the expando is malformed.
+ * @function
+ * @param {string} fmtString the format string we are working on
+ * @param {number} vpos the current position in the string
+ * @returns {Object} the expando MsgFormatEntry  
  */
-function msgFormat_extractExpandoSpecifier(fmtString, vpos) {
+function extractExpandoSpecifier(fmtString, vpos) {
     if (fmtString.startsWith('##', vpos)) {
-        return msgFormat_CreateExpando(FormatStringEntryTag.LITERAL_HASH, vpos, vpos + '##'.length);
+        return createMsgFormatEntry(FormatStringEntrySingletons.LITERAL_HASH, vpos, vpos + '##'.length, -1, -1, -1);
     }
     else {
         let expando = s_expandoEntries.find(function (expando) { return fmtString.startsWith(expando.label, vpos); });
@@ -265,16 +276,20 @@ function msgFormat_extractExpandoSpecifier(fmtString, vpos) {
             throw new Error("Bad match in expando format string.");
         }
 
-        return msgFormat_CreateExpando(expando, vpos, vpos + expando.label.length);
+        return createMsgFormatEntry(expando, vpos, vpos + expando.label.length, -1, -1, -1);
     }
 }
 
 /**
  * Helper function to extract and construct an argument format specifier or throws is the format specifier is malformed.
+ * @function
+ * @param {string} fmtString the format string we are working on
+ * @param {number} vpos the current position in the string
+ * @returns {Object} the expando MsgFormatEntry  
  */
-function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
+function extractArgumentFormatSpecifier(fmtString, vpos) {
     if (fmtString.startsWith('$$', vpos)) {
-        return msgFormat_CreateBasicFormatter(FormatStringEntryTag.LITERAL_DOLLAR, -1, vpos, vpos + '$$'.length);
+        return createMsgFormatEntry(FormatStringEntrySingletons.LITERAL_DOLLAR, vpos, vpos + '$$'.length, -1, -1, -1);
     }
     else {
         if (!fmtString.startsWith('${', vpos)) {
@@ -310,16 +325,16 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
 
         if (basicFormatOption) {
             let fendpos = specPos + 2; //"x}".length
-            return msgFormat_CreateBasicFormatter(basicFormatOption, argPosition, vpos, fendpos);
+            return createMsgFormatEntry(basicFormatOption, vpos, fendpos, argPosition, -1, -1);
         }
         else {
             let DL_STAR = 1073741824;
 
             if (fmtString.startsWith('o}', specPos)) {
-                return msgFormat_CreateCompundFormatter(FormatStringEntryTag.OBJECT_VAL, argPosition, vpos, specPos + 'o}'.length, DEFAULT_EXPAND_DEPTH, DEFAULT_EXPAND_OBJECT_LENGTH);
+                return createMsgFormatEntry(FormatStringEntrySingletons.OBJECT_VAL, vpos, specPos + 'o}'.length, argPosition, DEFAULT_EXPAND_DEPTH, DEFAULT_EXPAND_OBJECT_LENGTH);
             }
             else if (fmtString.startsWith('a}', specPos)) {
-                return msgFormat_CreateCompundFormatter(FormatStringEntryTag.ARRAY_VAL, argPosition, vpos, specPos + 'a}'.length, DEFAULT_EXPAND_DEPTH, DEFAULT_EXPAND_ARRAY_LENGTH);
+                return createMsgFormatEntry(FormatStringEntrySingletons.ARRAY_VAL, vpos, specPos + 'a}'.length, argPosition, DEFAULT_EXPAND_DEPTH, DEFAULT_EXPAND_ARRAY_LENGTH);
             }
             else {
                 let dlRegex = /([o|a])<(\d+|\*)?,(\d+|\*)?>/y;
@@ -330,7 +345,7 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
                     throw new Error('Bad position specifier in format.');
                 }
 
-                let ttag = (dlMatch[1] === 'o') ? FormatStringEntryTag.OBJECT_VAL : FormatStringEntryTag.ARRAY_VAL;
+                let ttag = (dlMatch[1] === 'o') ? FormatStringEntrySingletons.OBJECT_VAL : FormatStringEntrySingletons.ARRAY_VAL;
                 let tdepth = DEFAULT_EXPAND_DEPTH;
                 let tlength = (dlMatch[1] === 'o') ? DEFAULT_EXPAND_OBJECT_LENGTH : DEFAULT_EXPAND_ARRAY_LENGTH;
 
@@ -342,7 +357,7 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
                     tlength = (dlMatch[3] !== '*') ? Number.parseInt(dlMatch[3]) : DL_STAR;
                 }
 
-                return msgFormat_CreateCompundFormatter(ttag, argPosition, vpos, specPos + dlMatch[0].length, tdepth, tlength);
+                return createMsgFormatEntry(ttag, vpos, specPos + dlMatch[0].length, argPosition, tdepth, tlength);
             }
         }
     }
@@ -350,13 +365,24 @@ function msgFormat_extractArgumentFormatSpecifier(fmtString, vpos) {
 
 /**
  * Construct a msgFormat object.
+ * @function
+ * @param {string} fmtName the name of the format
+ * @param {string} fmtString the raw format string
+ * @param {number} maxArgPos the largest arg used in the format
+ * @param {Array} fmtEntryArray the array of MsgFormatEntry objects
+ * @param {bool} areAllSingleSlotFormatters true of all the formatters use only a single slot
+ * @returns {Object} our MsgFormat object
  */
-function msgFormat_Create(fmtName, fmtString, maxArgPos, fmtEntryArray, areAllSingleSlotFormatters) {
+function createMsgFormat(fmtName, fmtString, maxArgPos, fmtEntryArray, areAllSingleSlotFormatters) {
     return { formatName: fmtName, formatString: fmtString, maxArgPosition: maxArgPos, formatterArray: fmtEntryArray, allSingleSlotFormatters: areAllSingleSlotFormatters };
 }
 
 /**
  * Takes a message format string and converts it to our internal format structure.
+ * @function
+ * @param {string} fmtName the name of the format
+ * @param {string|Object} fmtString the raw format string or a JSON style format
+ * @returns {Object} our MsgFormat object
  */
 function extractMsgFormat(fmtName, fmtInfo) {
     let cpos = 0;
@@ -370,12 +396,12 @@ function extractMsgFormat(fmtName, fmtInfo) {
         fmtString = fmtInfo;
     }
     else {
-        let typename = typeGetName(fmtInfo);
-        if (typename !== TypeNameEnum_JsArray && typename !== TypeNameEnum_Object) {
+        let typeid = typeGetIdTag(fmtInfo);
+        if (typeid !== TypeNameEnum_JsArray && typeid !== TypeNameEnum_Object) {
             throw new Error('Format description options are string | object layout | array layout.');
         }
 
-        fmtString = msgFormat_expandToJsonFormatter(fmtInfo);
+        fmtString = expandToJsonFormatter(fmtInfo);
     }
 
     let newlineRegex = /(\n|\r)/
@@ -391,7 +417,7 @@ function extractMsgFormat(fmtName, fmtInfo) {
             cpos++;
         }
         else {
-            let fmt = (cchar === '#') ? msgFormat_extractExpandoSpecifier(fmtString, cpos) : msgFormat_extractArgumentFormatSpecifier(fmtString, cpos);
+            let fmt = (cchar === '#') ? extractExpandoSpecifier(fmtString, cpos) : extractArgumentFormatSpecifier(fmtString, cpos);
             fArray.push(fmt);
 
             if (fmt.fposition) {
@@ -403,10 +429,10 @@ function extractMsgFormat(fmtName, fmtInfo) {
     }
 
     let allBasicFormatters = fArray.every(function (value) {
-        return isSingleSlotFormatter(value);
+        return value.isSingleSlot;
     });
 
-    return msgFormat_Create(fmtName, fmtString, maxArgPos, fArray, allBasicFormatters);
+    return createMsgFormat(fmtName, fmtString, maxArgPos, fArray, allBasicFormatters);
 }
 
 /////////////////////////////
@@ -553,7 +579,15 @@ BlockList.prototype.addExpandedObject = function (obj, depth, length) {
         let allowedLengthRemain = length;
         for (let p in obj) {
             this.addEntry(LogEntryTags_PropertyRecord, p);
-            this.addGeneralValue(obj[p], depth - 1);
+
+            const value = obj[p];
+            const typeid = typeGetIdTag(value);
+            if (typeid <= TypeNameEnum_LastSimpleType) {
+                this.addJsVarValueEntry(value)
+            }
+            else {
+                (this.addGeneralValue_RemainingTypesCallTable[typeid])(this, value, depth);
+            }
 
             allowedLengthRemain--;
             if (allowedLengthRemain <= 0) {
@@ -591,7 +625,14 @@ BlockList.prototype.addExpandedArray = function (obj, depth, length) {
         this.addTagOnlyEntry(LogEntryTags_LBrack);
 
         for (let i = 0; i < obj.length; ++i) {
-            this.addGeneralValue(obj[i], depth - 1);
+            const value = obj[i];
+            const typeid = typeGetIdTag(value);
+            if (typeid <= TypeNameEnum_LastSimpleType) {
+                this.addJsVarValueEntry(value)
+            }
+            else {
+                (this.addGeneralValue_RemainingTypesCallTable[typeid])(this, value, depth);
+            }
 
             if (i >= length) {
                 this.addTagOnlyEntry(LogEntryTags_LengthBoundHit);
@@ -606,37 +647,52 @@ BlockList.prototype.addExpandedArray = function (obj, depth, length) {
 };
 
 /**
- * Add a value  to the log using the default formatting options
- * @method
- * @param {*} value the value to expand into the log
- * @param {number} depth the max depth to recursively expand the value (if an object or array)
+ * Add functions to process general values via lookup on typeid number in prototype array
  */
-BlockList.prototype.addGeneralValue = function (value, depth) {
-    const typename = typeGetName(value);
-    if ((typename & TypeNameEnum_SimpleType) === typename) {
-        this.addJsVarValueEntry(value);
-    }
-    else if (typename == TypeNameEnum_String) {
-        this.addJsVarValueEntry(value);
-    }
-    else if (typename === TypeNameEnum_Date) {
-        this.addJsVarValueEntry(new Date(value));
-    }
-    else if (typename === TypeNameEnum_Function) {
-        this.addJsVarValueEntry('[ #Function# ' + value.name + ' ]');
-    }
-    else if (typename === TypeNameEnum_Object) {
-        this.addExpandedObject(value, depth, DEFAULT_EXPAND_OBJECT_LENGTH);
-    }
-    else if ((typename & TypeNameEnum_AnyArray) == typename) {
-        this.addExpandedArray(value, depth, DEFAULT_EXPAND_ARRAY_LENGTH);
+BlockList.prototype.addGeneralValue_RemainingTypesCallTable = new Array(TypeNameEnum_Limit);
+BlockList.prototype.addGeneralValue_RemainingTypesCallTable.fill(null);
+
+BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_Date] = function (blockList, value, depth) { blockList.addJsVarValueEntry(new Date(value)); };
+BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_Function] = function (blockList, value, depth) { blockList.addJsVarValueEntry('[ #Function# ' + value.name + ' ]'); };
+
+BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_Object] = function (blockList, value, depth) { blockList.addExpandedObject(value, depth, DEFAULT_EXPAND_OBJECT_LENGTH); };
+BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_JsArray] = function (blockList, value, depth) { blockList.addExpandedArray(value, depth, DEFAULT_EXPAND_ARRAY_LENGTH); };
+BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_TypedArray] = function (blockList, value, depth) { blockList.addExpandedArray(value, depth, DEFAULT_EXPAND_ARRAY_LENGTH); };
+
+BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_Unknown] = function (blockList, value, depth) { blockList.addTagOnlyEntry(LogEntryTags_OpaqueObject); };
+
+////////
+
+/**
+ * A table that maps from basic format type enums to the typeid that is permissible for that formatter
+ */
+const FormatTypeToArgTypeCheckArray = new Array(FormatStringEntrySingleton_EnumLimit);
+FormatTypeToArgTypeCheckArray.fill(0);
+
+FormatTypeToArgTypeCheckArray[FormatStringEntrySingletons.BOOL_VAL.enum] = TypeNameEnum_Boolean;
+FormatTypeToArgTypeCheckArray[FormatStringEntrySingletons.NUMBER_VAL.enum] = TypeNameEnum_Number;
+FormatTypeToArgTypeCheckArray[FormatStringEntrySingletons.STRING_VAL.enum] = TypeNameEnum_String;
+
+const LogMessage_RemainingTypesCallTable = new Array(FormatStringEntrySingleton_EnumLimit);
+LogMessage_RemainingTypesCallTable.fill(null);
+
+LogMessage_RemainingTypesCallTable[FormatStringEntrySingletons.OBJECT_VAL.enum] = function (blockList, valueid, value, formatEntry) {
+    if (valueid === TypeNameEnum_Object) {
+        blockList.addExpandedObject(value, formatEntry.depth, formatEntry.length);
     }
     else {
-        this.addTagOnlyEntry(LogEntryTags_OpaqueObject);
+        blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
     }
 };
 
-////////
+LogMessage_RemainingTypesCallTable[FormatStringEntrySingletons.ARRAY_VAL.enum] = function (blockList, valueid, value, formatEntry) {
+    if ((valueid === TypeNameEnum_JsArray) || (valueid === TypeNameEnum_TypedArray)) {
+        blockList.addExpandedArray(value, formatEntry.depth, formatEntry.length);
+    }
+    else {
+        blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
+    }
+};
 
 /**
  * Log a message into the logger
@@ -646,100 +702,59 @@ function logMessage(blockList, macroInfo, level, fmt, args) {
     blockList.addEntry(LogEntryTags_MsgLevel, level);
 
     for (let i = 0; i < fmt.formatterArray.length; ++i) {
-        let fentry = fmt.formatterArray[i];
-        let value = undefined;
-        let valuetype = undefined;
+        const formatEntry = fmt.formatterArray[i];
+        const formatSpec = formatEntry.format;
 
-        //TODO: this should check expando and then have the 2 branches + checks seperated....
-        if (fentry.format.kind !== 'expando') {
-            if (fentry.argPosition < args.length) {
-                value = args[fentry.argPosition];
-                valuetype = typeGetName(value);
+        if (formatSpec.kind === FormatStringEntryKind_Literal) {
+            ; //don't need to do anything!
+        }
+        else if (formatSpec.kind === FormatStringEntryKind_Expando) {
+            if (formatSpec.enum <= FormatStringEntrySingleton_LastMacroInfoExpandoEnum) {
+                blockList.addJsVarValueEntry(macroInfo[formatSpec.name]);
             }
             else {
-                //We hit a bad format value so rather than let it propigate -- report and move on.
-                blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
-                continue;
+                if (formatSpec === FormatStringEntrySingletons.MSG_NAME) {
+                    blockList.addJsVarValueEntry(fmt.name);
+                }
+                else {
+                    //TODO: remove this later but useful for initial testing
+                    assert(formatSpec === FormatStringEntrySingletons.WALLTIME, 'Should not be any other options');
+                    blockList.addJsVarValueEntry(Date.now());
+                }
             }
         }
+        else {
+            //TODO: remove this after we are done debugging a bit
+            assert(formatSpec.kind === FormatStringEntryKind_Basic || formatSpec.kind === FormatStringEntryKind_Compound, "No other options");
 
-        switch (fentry.format.enum) {
-            case 0x1: // literal # 
-                //just break 
-                break;
-            case 0x2: //#ip_addr
-                blockList.addJsVarValueEntry(macroInfo.IP_ADDR);
-                break;
-            case 0x3: //#app_name
-                blockList.addJsVarValueEntry(macroInfo.APP_NAME);
-                break;
-            case 0x4: //#module_name
-                blockList.addJsVarValueEntry(macroInfo.MODULE_NAME);
-                break;
-            case 0x5: //#msg_name
-                blockList.addJsVarValueEntry(fmt.name);
-                break;
-            case 0x6: //#wall_time
-                blockList.addJsVarValueEntry(Date.now());
-                break;
-            case 0x7: //#logical_time
-                blockList.addJsVarValueEntry(macroInfo.LOGICAL_TIME);
-                break;
-            case 0x8: //#callback_id
-                blockList.addJsVarValueEntry(macroInfo.CALLBACK_ID);
-                break;
-            case 0x9: //#request_id
-                blockList.addJsVarValueEntry(macroInfo.REQUEST_ID);
-                break;
-            case 0x10: // literal $
-                //just break 
-                break;
-            case 0x20: //${i:b}
-                if ((valuetype & TypeNameEnum_SimpleType) === valuetype) {
-                    blockList.addJsVarValueEntry(value ? true : false);
-                }
-                else {
-                    blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
-                }
-                break;
-            case 0x30: //${i:n}
-                if (valuetype == TypeNameEnum_Number) {
-                    blockList.addJsVarValueEntry(value);
-                }
-                else {
-                    blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
-                }
-                break;
-            case 0x40: //${i:s}
-                if (valuetype === TypeNameEnum_String) {
-                    blockList.addJsVarValueEntry(value);
-                }
-                else {
-                    blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
-                }
-                break;
-            case 0x50: //${i:g}
-                blockList.addGeneralValue(blockList, value, DEFAULT_EXPAND_DEPTH);
-                break;
-            case 0x60: // ${i:o}
-                if (valuetype === TypeNameEnum_Object) {
-                    blockList.addExpandedObject(value, fmt.depth, fmt.length);
-                }
-                else {
-                    blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
-                }
-                break;
-            case 0x70: // ${i:a}
-                if ((valuetype & TypeNameEnum_AnyArray) === valuetype) {
-                    blockList.addExpandedArray(value, fmt.depth, fmt.length);
-                }
-                else {
-                    blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
-                }
-                break;
-            default:
+            if (formatEntry.argPosition >= args.length) {
+                //We hit a bad format value so rather than let it propigate -- report and move on.
                 blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
-                break;
+            }
+            else {
+                const value = args[formatEntry.argPosition];
+                const typeid = typeGetIdTag(value);
+
+                if (formatSpec.enum <= FormatStringEntrySingleton_LastBasicFormatterEnum) {
+                    if (FormatTypeToArgTypeCheckArray[formatSpec.enum] === typeid) {
+                        blockList.addJsVarValueEntry(value);
+                    }
+                    else {
+                        blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
+                    }
+                }
+                else if (formatSpec === FormatStringEntrySingletons.GENERAL_VAL) {
+                    if (typeid <= TypeNameEnum_LastSimpleType) {
+                        blockList.addJsVarValueEntry(value)
+                    }
+                    else {
+                        (this.addGeneralValue_RemainingTypesCallTable[typeid])(blockList, typeid, value, depth);
+                    }
+                }
+                else {
+                    (LogMessage_RemainingTypesCallTable[formatSpec.enum])(blockList, typeid, fmt, value)
+                }
+            }
         }
     }
 
@@ -1050,7 +1065,7 @@ function emitter_emitFormatEntry(emitter, tag, data) {
             emitter_pushArrayState(emitter);
         }
         else if (tag === LogEntryTags_JsBadFormatVar || tag === LogEntryTags_OpaqueValue) {
-            emitter_emitSpecialVar(dataTag, writer);
+            emitter_emitSpecialVar(tag, writer);
         }
         else {
             let fentry = sentry.format.formatterArray[sentry.formatterIndex];

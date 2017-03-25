@@ -53,7 +53,7 @@ for(var i = 0; i < iterCount; ++i) {
 //Move data into the memory buffer
 let emitBlockList = lgr.createBlockList();
 
-lgr.processMsgsForWrite(logBlockList, lgr.LoggingLevels.OFF, emitBlockList);
+lgr.processMsgsForWrite(logBlockList, lgr.LoggingLevels.ALL, emitBlockList);
 
 let nlogend = new Date();
 console.error(`NativeLogger: Iters = ${iterCount} -- Log time = ${nlogend - nlogstart}ms`)
@@ -63,5 +63,9 @@ console.error(`NativeLogger: Iters = ${iterCount} -- Log time = ${nlogend - nlog
 let cwriter = lgr.createConsoleWriter();
 let emitter = lgr.createEmitter(cwriter);
 
+let nwritestart = new Date();
+
 lgr.emitBlockList(emitter, emitBlockList);
 
+let nwriteend = new Date();
+console.error(`NativeLogger: Iters = ${iterCount} -- Write time = ${nwriteend - nwritestart}ms`)
