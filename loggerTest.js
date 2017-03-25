@@ -17,13 +17,13 @@ let macroInfo = {
     REQUEST_ID: -1
 };
 
-lgr.logMsg(logBlockList, macroInfo, lgr.LoggingLevels.DEBUG, fmt_g1, ['ok', 5]);
+logBlockList.logMessage(macroInfo, lgr.LoggingLevels.DEBUG, fmt_g1, ['ok', 5]);
 
 ////
 //Move data into the memory buffer
 let emitBlockList = lgr.createBlockList();
 
-lgr.processMsgsForWrite(logBlockList, lgr.LoggingLevels.ALL, emitBlockList);
+logBlockList.processMsgsForWrite(lgr.LoggingLevels.ALL, emitBlockList);
 
 ////
 //Write data to the console
