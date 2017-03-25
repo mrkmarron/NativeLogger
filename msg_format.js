@@ -475,7 +475,7 @@ function createMsgBlock(previousBlock) {
 
 /**
  * BlockList constructor
- * @class
+ * @constructor
  */
 function BlockList() {
     this.head = createMsgBlock(null);
@@ -822,102 +822,136 @@ const EmitMode_ObjectLevel = 2;
 const EmitMode_ArrayLevel = 3;
 
 /**
- * Create an emit state stack entry for a formatter msg
+ * Constructor for a format stack state entry
+ * @constructor
+ * @param {number} emitState 
+ * @param {*} fmt the (optional) formatEntry if emitState is EmitMode_MsgFormat
  */
-function emitStack_createFormatterState(fmt) {
-    return { mode: EmitMode_MsgFormat, commaInsert: false, format: fmt, formatterIndex: 0 };
+function FormatStateEntry(emitState, fmt) {
+    this.mode = emitState;
+    this.commaInsert = fmt ? false : true;
+    if (fmt !== undefined) {
+        this.formatEnum = fmt.enum;
+        this.formatString = fmt.formatString;
+        this.formatArray = fmt.formatterArray;
+        this.formatterIndex = 0;
+    }
 }
 
 /**
- * Create an emit state stack entry for an object or array format
+ * Check if we need to insert a comma (and update the comma insert state)
+ * @method
+ * @returns {bool}
  */
-function emitStack_createJSONState(emitMode) {
-    return { mode: emitMode, commaInsert: false };
-}
-
-/**
- * Check and update the need to insert a comma in our output
- */
-function emitStack_checkAndUpdateNeedsComma(emitEntry) {
-    if (emitEntry.commaInsert) {
+FormatStateEntry.prototype.checkAndUpdateNeedsComma = function () {
+    if (this.commaInsert) {
         return true;
     }
     else {
-        emitEntry.commaInsert = true;
+        this.commaInsert = true;
         return false;
     }
-}
+};
 
 /**
  * Get the start position for a span of literal text in a format string to emit.
+ * @method
+ * @returns {number}
  */
-function emitStack_getFormatRangeStart(emitEntry) {
-    return emitEntry.format.formatterArray[emitEntry.formatterIndex].formatEnd;
-}
+FormatStateEntry.prototype.getFormatRangeStart = function () {
+    return this.formatArray[this.formatterIndex].formatEnd;
+};
 
 /**
  * Get the end position for a span of literal text in a format string to emit.
+ * @method
+ * @returns {number}
  */
-function emitStack_getFormatRangeEnd(emitEntry) {
-    let fmtArray = emitEntry.format.formatterArray;
-    return (emitEntry.formatterIndex + 1 < fmtArray.length) ? fmtArray[emitEntry.formatterIndex + 1].formatStart : emitEntry.format.formatString.length;
+FormatStateEntry.prototype.getFormatRangeEnd = function () {
+    return (this.formatterIndex + 1 < this.formatArray.length) ? this.formatArray[this.formatterIndex + 1].formatStart : this.formatString.length;
+};
+
+
+/**
+ * Constructor for an blockList emitter
+ * @constructor
+ * @param {Object} writer for the data
+ */
+function Emitter(writer) {
+    this.blockList = null;
+    this.block = null;
+    this.pos = 0;
+    this.writer = writer;
+    this.stateStack = [];
 }
 
-function emitter_emitJsString(str, writer) {
-    writer.emitChar('"');
-    writer.emitFullString(str);
-    writer.emitChar('"');
+/**
+ * Output a string as a quoted JavaScript string.
+ * @method
+ */
+Emitter.prototype.emitJsString = function (str) {
+    this.writer.emitChar('"');
+    this.writer.emitFullString(str);
+    this.writer.emitChar('"');
 }
 
-function emitter_emitEntryStart(writer) {
-    writer.emitChar('>');
+/**
+ * Output the start of a log message.
+ * @method
+ */
+Emitter.prototype.emitEntryStart = function () {
+    this.writer.emitChar('>');
 }
 
-function emitter_emitEntryEnd(writer) {
-    writer.emitChar('\n');
+/**
+ * Output the end of a log message.
+ * @method
+ */
+Emitter.prototype.emitEntryEnd = function () {
+    this.writer.emitChar('\n');
 }
 
 /**
  * Emit a simple var (JsVarValue tag)
- * @param {Object} value 
- * @param {Object} writer 
+ * @method
+ * @param {Object} value  
  */
-function emitter_emitSimpleVar(value, writer) {
+Emitter.prototype.emitSimpleVar = function (value) {
     if (value === undefined) {
-        writer.emitFullString('undefined');
+        this.writer.emitFullString('undefined');
     }
-    else if (value === 'null') {
-        writer.emitFullString('null');
+    else if (value === null) {
+        this.writer.emitFullString('null');
     }
     else {
-        writer.emitFullString(value.toString());
+        this.writer.emitFullString(value.toString());
     }
 }
 
 /**
  * Emit a special var as indicated by the tag
- * @param {Object} tag
- * @param {Object} writer 
+ * @method
+ * @param {number} tag
  */
-function emitter_emitSpecialVar(tag, writer) {
+Emitter.prototype.emitSpecialVar = function (tag) {
     switch (tag) {
         case LogEntryTags_JsBadFormatVar:
-            writer.emitFullString('"<BadFormat>"');
+            this.writer.emitFullString('"<BadFormat>"');
             break;
         case LogEntryTags_LengthBoundHit:
-            writer.emitFullString('<LengthBoundHit>"');
+            this.writer.emitFullString('<LengthBoundHit>"');
             break;
         case LogEntryTags_CycleValue:
-            writer.emitFullString('"<Cycle>"');
+            this.writer.emitFullString('"<Cycle>"');
             break;
         case LogEntryTags_OpaqueValue:
-            writer.emitFullString('"<Value>"');
+            this.writer.emitFullString('"<Value>"');
             break;
         case LogEntryTags_OpaqueObject:
-            writer.emitFullString('"<Object>"');
+            this.writer.emitFullString('"<Object>"');
             break;
         case LogEntryTags_OpaqueArray:
-            writer.emitFullString('"<Array>"');
+            this.writer.emitFullString('"<Array>"');
             break;
         default:
             assert(false, "Unknown case in switch statement for special var emit.");
@@ -926,20 +960,15 @@ function emitter_emitSpecialVar(tag, writer) {
 }
 
 /**
- * Create an emitter that will format/emit from a block list into the writer.
- */
-function emitter_createEmitter(writer) {
-    return { blockList: null, block: null, pos: 0, writer: writer, stateStack: [] };
-}
-
-/**
  * Append a new blocklist into the current one in this emitter
+ * @method
+ * @param {BlockList} blockList the data to add to the emitter worklist
  */
-function emitter_appendBlockList(emitter, blockList) {
-    if (emitter.blockList === null) {
-        emitter.blockList = blockList;
-        emitter.block = blockList.head;
-        emitter.pos = 0;
+Emitter.prototype.appendBlockList = function (blockList) {
+    if (this.blockList === null) {
+        this.blockList = blockList;
+        this.block = blockList.head;
+        this.pos = 0;
     }
     else {
         assert(false, 'Need to add append code here!!!');
@@ -947,95 +976,89 @@ function emitter_appendBlockList(emitter, blockList) {
 }
 
 /**
- * Push top level format msg state
+ * Push top a formatter state onto the processing stack
+ * @method
+ * @param {number} mode
+ * @param {string} leadToken the (optional) token to emit
+ * @param {Object} fmt the (optional) format entry
  */
-function emitter_pushFormatState(emitter, fmt) {
-    emitter.stateStack.push(emitStack_createFormatterState(fmt));
-}
-
-/**
- * Push an object format msg state and write opening {
- */
-function emitter_pushObjectState(emitter) {
-    emitter.stateStack.push(emitStack_createJSONState(EmitMode_ObjectLevel));
-    emitter.writer.emitChar("{");
-}
-
-/**
- * Push an array format msg state and write opening [
- */
-function emitter_pushArrayState(emitter) {
-    emitter.stateStack.push(emitStack_createJSONState(EmitMode_ArrayLevel));
-    emitter.writer.emitChar('[');
+Emitter.prototype.pushFormatState = function (mode, leadToken, fmt) {
+    this.stateStack.push(new FormatStateEntry(EmitMode_MsgFormat, fmt));
+    if (leadToken !== undefined) {
+        this.writer.emitChar(leadToken);
+    }
 }
 
 /**
  * Peek at the top emitter stack state
+ * @method
+ * @returns {Object} the top emit stack state
  */
-function emitter_peekEmitState(emitter) {
-    return emitter.stateStack[emitter.stateStack.length - 1];
+Emitter.prototype.peekEmitState = function () {
+    return this.stateStack[this.stateStack.length - 1];
 }
 
 /**
  * Pop and emitter state and write any needed closing } or ] and fill in any string format text
+ * @method
  */
-function emitter_popEmitState(emitter) {
-    let pentry = emitter.stateStack.pop();
+Emitter.prototype.popEmitState = function () {
+    const pentry = this.stateStack.pop();
     if (pentry.mode == EmitMode_MsgFormat) {
-        emitter_emitEntryEnd(emitter.writer);
+        this.emitEntryEnd();
     }
     else {
-        emitter.writer.emitChar(pentry.mode === EmitMode_ObjectLevel ? '}' : ']');
+        this.writer.emitChar(pentry.mode === EmitMode_ObjectLevel ? '}' : ']');
 
-        let sentry = emitter_peekEmitState(emitter);
+        const sentry = this.peekEmitState();
         if (sentry.mode === EmitMode_MsgFormat) {
-            emitter_emitFormatMsgSpan(emitter);
+            this.emitFormatMsgSpan(sentry);
         }
     }
 }
 
 /**
  * Write the msg format literal text between two format specifiers (or string end).
+ * @method
+ * @param {Object} currStackEntry the current state stack entry
  */
-function emitter_emitFormatMsgSpan(emitter) {
-    let sentry = emitter_peekEmitState(emitter);
+Emitter.prototype.emitFormatMsgSpan = function (currStackEntry) {
+    const start = currStackEntry.getFormatRangeStart();
+    const end = currStackEntry.getFormatRangeEnd();
 
-    let start = emitStack_getFormatRangeStart(sentry);
-    let end = emitStack_getFormatRangeEnd(sentry);
-
-    emitter.writer.emitStringSpan(sentry.format.formatString, start, end);
-
-    sentry.formatterIndex++;
+    this.writer.emitStringSpan(currStackEntry.formatString, start, end);
+    currStackEntry.formatterIndex++;
 }
 
 /**
  * Emit a value when we are in format entry mode.
+ * @method
+ * @param {Object} currStackEntry the current state stack entry
+ * @param {number} tag the value tag from the log
+ * @param {*} data the value data from the log
  */
-function emitter_emitFormatEntry(emitter, tag, data) {
-    let writer = emitter.writer;
-    let sentry = emitter_peekEmitState(emitter);
-    let fmt = sentry.format;
-
-    assert(sentry.mode === EmitMode_MsgFormat, "Shound not be here then.");
+Emitter.prototype.emitFormatEntry = function (currStackEntry, tag, data) {
+    assert(currStackEntry.mode === EmitMode_MsgFormat, "Shound not be here then.");
 
     if (tag === LogEntryTags_MsgEndSentinal) {
-        emitter_popEmitState(emitter);
+        this.popEmitState();
     }
     else {
         if (tag === LogEntryTags_MsgLevel) {
             //write format string to first formatter pos (or entire string if no formatters) and set the stack as needed.
-            emitter_emitEntryStart(writer);
+            this.emitEntryStart();
 
-            let logLevelKey = Object.keys(LoggingLevels).find(function (value) {
+            const logLevelKey = Object.keys(LoggingLevels).find(function (value) {
                 return LoggingLevels[value].enum === (data.enum & LoggingLevels.ALL.enum);
             });
-            let logLevelEntry = LoggingLevels[logLevelKey];
+            const logLevelEntry = LoggingLevels[logLevelKey];
 
-            let systemLevelKey = Object.keys(SystemInfoLevels).find(function (value) {
+            const systemLevelKey = Object.keys(SystemInfoLevels).find(function (value) {
                 return SystemInfoLevels[value].enum === (data.enum & SystemInfoLevels.ALL.enum);
             });
-            let systemLevelEntry = SystemInfoLevels[systemLevelKey];
+            const systemLevelEntry = SystemInfoLevels[systemLevelKey];
 
+            const writer = this.writer;
             writer.emitFullString('level: ');
             if (logLevelEntry !== LoggingLevels.OFF && systemLevelEntry !== SystemInfoLevels.OFF) {
                 writer.emitFullString('(logging: ');
@@ -1055,187 +1078,201 @@ function emitter_emitFormatEntry(emitter, tag, data) {
             }
 
             writer.emitFullString(', msg: ')
-            if (fmt.formatterArray.length === 0) {
-                writer.emitFullString(fmt.formatString);
+            if (currStackEntry.formatArray.length === 0) {
+                writer.emitFullString(currStackEntry.formatString);
             }
             else {
-                let fpos = fmt.formatterArray[0].formatStart;
-                writer.emitStringSpan(fmt.formatString, 0, fpos);
+                const fpos = currStackEntry.formatArray[0].formatStart;
+                writer.emitStringSpan(currStackEntry.formatString, 0, fpos);
             }
         }
         else if (tag === LogEntryTags_LParen) {
-            emitter_pushObjectState(emitter);
+            this.pushFormatState(EmitMode_ObjectLevel, '{', undefined);
         }
         else if (tag === LogEntryTags_LBrack) {
-            emitter_pushArrayState(emitter);
+            this.pushFormatState(EmitMode_ArrayLevel, '[', undefined);
         }
         else if (tag === LogEntryTags_JsBadFormatVar || tag === LogEntryTags_OpaqueValue) {
-            emitter_emitSpecialVar(tag, writer);
+            this.emitSpecialVar(tag);
         }
         else {
-            let fentry = sentry.format.formatterArray[sentry.formatterIndex];
-            switch (fentry.format.enum) {
-                case 0x1: //#
-                    writer.emitFullString('#');
-                    break;
-                case 0x2: //#ip_addr
-                case 0x3: //#app_name
-                case 0x4: //#module_name
-                case 0x5: //#msg_name
-                    writer.emitFullString(data);
-                    break;
-                case 0x6: //#wall_time
-                    writer.emitFullString(new Date(data).toISOString());
-                    break;
-                case 0x7: //#locial_time
-                case 0x8: //#callback_id
-                case 0x9: //#request_id
-                    writer.emitFullString(data.toString());
-                    break;
-                case 0x10: //$
-                    writer.emitFullString('$');
-                    break;
-                default:
-                    emitter_emitSimpleVar(data, writer);
-                    break;
+            const formatEntry = currStackEntry.formatArray[currStackEntry.formatterIndex];
+            const formatSpec = formatEntry.format;
+
+            if (formatSpec.kind === FormatStringEntryKind_Literal) {
+                this.writer.emitChar(formatEntry === FormatStringEntrySingletons.LITERAL_HASH ? '#' : '$');
+            }
+            else if (formatSpec.kind === FormatStringEntryKind_Expando) {
+                if (formatSpec.enum <= FormatStringEntrySingleton_LastMacroInfoExpandoEnum) {
+                    this.writer.emitFullString(data.toString());
+                }
+                else {
+                    if (formatSpec === FormatStringEntrySingletons.MSG_NAME) {
+                        this.writer.emitFullString(data.toString());
+                    }
+                    else {
+                        this.writer.emitFullString(new Date(data).toISOString());
+                    }
+                }
+            }
+            else {
+                //TODO: remove this after we are done debugging a bit
+                assert(formatSpec.kind === FormatStringEntryKind_Basic || formatSpec.kind === FormatStringEntryKind_Compound, "No other options");
+
+                this.emitSimpleVar(data);
             }
 
-            emitter_emitFormatMsgSpan(emitter);
+            this.emitFormatMsgSpan(currStackEntry);
         }
     }
 }
 
 /**
  * Emit a value when we are in object entry mode.
+ * @method
+ * @param {Object} currStackEntry the current state stack entry
+ * @param {number} tag the value tag from the log
+ * @param {*} data the value data from the log
  */
-function emitter_emitObjectEntry(emitter, tag, data) {
-    let writer = emitter.writer;
-    let sentry = emitter_peekEmitState(emitter);
-
-    assert(sentry.mode === EmitMode_ObjectLevel, "Shound not be here then.");
+Emitter.prototype.emitObjectEntry = function (currStackEntry, tag, data) {
+    assert(currStackEntry.mode === EmitMode_ObjectLevel, "Shound not be here then.");
 
     if (tag === LogEntryTags_RParen) {
-        emitter_popEmitState(emitter);
+        this.popEmitState();
     }
     else {
         if (tag === LogEntryTags_PropertyRecord) {
-            if (emitStack_checkAndUpdateNeedsComma(sentry)) {
-                writer.emitFullString(', ');
+            if (currStackEntry.checkAndUpdateNeedsComma()) {
+                this.writer.emitFullString(', ');
             }
 
-            emitter_emitJsString(data, writer);
-            writer.emitFullString(': ');
+            this.emitJsString(data);
+            this.writer.emitFullString(': ');
         }
         else if (tag === LogEntryTags_LParen) {
-            emitter_pushObjectState(emitter);
+            this.pushFormatState(EmitMode_ObjectLevel, '{', undefined);
         }
         else if (tag === LogEntryTags_LBrack) {
-            emitter_pushArrayState(emitter);
+            this.pushArrayState(emitter);
         }
         else if (tag === LogEntryTags_JsVarValue) {
-            emitter_emitSimpleVar(data, writer);
+            this.emitSimpleVar(data);
         }
         else {
-            emitter_emitSpecialVar(tag, writer);
+            this.emitSpecialVar(tag);
         }
     }
 }
 
 /**
  * Emit a value when we are in array entry mode.
+ * @method
+ * @param {Object} currStackEntry the current state stack entry
+ * @param {number} tag the value tag from the log
+ * @param {*} data the value data from the log
  */
-function emitter_emitArrayEntry(emitter, tag, data) {
-    let writer = emitter.writer;
-    let sentry = emitter_peekEmitState(emitter);
-
-    assert(sentry.mode === EmitMode_ObjectLevel, "Shound not be here then.");
+Emitter.prototype.emitArrayEntry = function (currStackEntry, tag, data) {
+    assert(currStackEntry.mode === EmitMode_ObjectLevel, "Shound not be here then.");
 
     if (tag === LogEntryTags_RBrack) {
-        emitter_popEmitState(emitter);
+        this.popEmitState();
     }
     else {
-        if (emitStack_checkAndUpdateNeedsComma(sentry)) {
-            writer.emitFullString(', ');
+        if (currStackEntry.checkAndUpdateNeedsComma()) {
+            this.writer.emitFullString(', ');
         }
 
         if (tag === LogEntryTags_LParen) {
-            emitter_pushObjectState(emitter);
+            this.pushFormatState(EmitMode_ObjectLevel, '{', undefined);
         }
         else if (tag === LogEntryTags_LBrack) {
-            emitter_pushArrayState(emitter);
+            this.pushFormatState(EmitMode_ArrayLevel, '[', undefined);
         }
         else if (tag === LogEntryTags_JsVarValue) {
-            emitter_emitSimpleVar(data, writer);
+            this.emitSimpleVar(data);
         }
         else {
-            emitter_emitSpecialVar(tag, writer);
+            this.emitSpecialVar(tag);
         }
     }
 }
 
 /**
  * Emit a single message -- return true if more to emit false otherwise
+ * @method
+ * @param {Object} currStackEntry the current state stack entry
+ * @param {number} tag the value tag from the log
+ * @param {*} data the value data from the log
  */
-function emitter_emitMsg(emitter) {
-    let state = emitter_peekEmitState(emitter).mode;
-    let tag = emitter.block.tags[emitter.pos];
-    let data = emitter.block.data[emitter.pos];
+Emitter.prototype.emitMsg = function (currStackEntry, tag, data) {
+    const state = currStackEntry.mode;
 
     if (state === EmitMode_MsgFormat) {
-        emitter_emitFormatEntry(emitter, tag, data);
+        this.emitFormatEntry(currStackEntry, tag, data);
     }
     else if (state === EmitMode_ObjectLevel) {
-        emitter_emitObjectEntry(emitter, tag, data);
+        this.emitObjectEntry(currStackEntry, tag, data);
     }
     else {
-        emitter_emitArrayEntry(emitter, tag, data);
+        this.emitArrayEntry(currStackEntry, tag, data);
     }
 }
 
 /**
  * The main process loop for the emitter -- write a full message and check if drain is required + cb invoke.
+ * @method
+ * @param {Function} fcb the (optional) final callback when the all the data is flushed
  */
-function emitter_ProcessLoop(emitter) {
+Emitter.prototype.processLoop = function (fcb) {
     let flush = false;
-    while (emitter.block !== null && emitter.pos != emitter.block.count && !flush) {
-        let tag = emitter.block.tags[emitter.pos];
-        let data = emitter.block.data[emitter.pos];
+    while (this.block !== null && this.pos != this.block.count && !flush) {
+        const tag = this.block.tags[this.pos];
+        const data = this.block.data[this.pos];
 
         if (tag === LogEntryTags_MsgFormat) {
-            emitter_pushFormatState(emitter, data);
+            this.pushFormatState(EmitMode_MsgFormat, undefined, data);
         }
         else {
-            emitter_emitMsg(emitter);
+            const currStackEntry = this.peekEmitState();
+            this.emitMsg(currStackEntry, tag, data);
         }
 
         //Advance the position of the emitter
-        if (emitter.pos < emitter.block.count - 1) {
-            emitter.pos++;
+        if (this.pos < this.block.count - 1) {
+            this.pos++;
         }
         else {
-            emitter.block = emitter.block.next;
-            emitter.pos = 0;
+            this.block = this.block.next;
+            this.pos = 0;
         }
 
         if (tag === LogEntryTags_MsgEndSentinal) {
-            flush = emitter.writer.needsToDrain();
+            flush = this.writer.needsToDrain();
         }
     }
 
     //if we need to flush then call the writer drain with a callback to us
     if (flush) {
-        emitter.writer.drain(function () {
-            emitter_ProcessLoop(emitter);
+        const _self = this;
+        this.writer.drain(function () {
+            _self.processLoop(fcb);
         });
+    }
+    else {
+        let lcb = fcb || function () { ; };
+        this.writer.drain(lcb);
     }
 }
 
 /**
  * Call this method to emit a blocklist (as needed).
+ * @method
+ * @param {BlockList} blockList the BlockList of data we want to have emitted
+ * @param {Function} fcb the (optional) final callback when the all the data is flushed
  */
-function emitBlockList(emitter, blockList) {
-    emitter_appendBlockList(emitter, blockList);
-    emitter_ProcessLoop(emitter);
+Emitter.prototype.emitBlockList = function (blockList, fcb) {
+    this.appendBlockList(blockList);
+    this.processLoop(fcb);
 }
 
 /////////////////////////////
@@ -1281,13 +1318,10 @@ exports.SystemInfoLevels = SystemInfoLevels;
 exports.createMsgFormat = extractMsgFormat;
 
 //Export function for logging a message into the in-memory logging buffer
-exports.createBlockList = function createBlockList() { return new BlockList(); }
+exports.createBlockList = function () { return new BlockList(); }
 
 //Export a function for creating an emitter
-exports.createEmitter = emitter_createEmitter;
-
-//Export a function to write messages out to the given writer
-exports.emitBlockList = emitBlockList;
+exports.createEmitter = function (writer) { return new Emitter(writer) };
 
 //Create a console writer
 exports.createConsoleWriter = createConsoleWriter;

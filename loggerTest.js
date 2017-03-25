@@ -30,4 +30,4 @@ logBlockList.processMsgsForWrite(lgr.LoggingLevels.ALL, emitBlockList);
 let cwriter = lgr.createConsoleWriter();
 let emitter = lgr.createEmitter(cwriter);
 
-lgr.emitBlockList(emitter, emitBlockList);
+emitter.emitBlockList(emitBlockList);
