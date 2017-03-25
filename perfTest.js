@@ -46,14 +46,14 @@ console.error(`Pino: Iters = ${iterCount} -- Log time = ${plogend - plogstart}ms
 let nlogstart = new Date();
 for(var i = 0; i < iterCount; ++i) {
     let args = ['ok', 5];
-    lgr.logMsg(logBlockList, macroInfo, lgr.LoggingLevels.DEBUG, fmt_g1, args);
+    logBlockList.logMessage(macroInfo, lgr.LoggingLevels.DEBUG, fmt_g1, args);
 }
 
 ////
 //Move data into the memory buffer
 let emitBlockList = lgr.createBlockList();
 
-lgr.processMsgsForWrite(logBlockList, lgr.LoggingLevels.ALL, emitBlockList);
+logBlockList.processMsgsForWrite(lgr.LoggingLevels.ALL, emitBlockList);
 
 let nlogend = new Date();
 console.error(`NativeLogger: Iters = ${iterCount} -- Log time = ${nlogend - nlogstart}ms`)

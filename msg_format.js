@@ -57,13 +57,6 @@ const SystemInfoLevels = {
     ALL: { label: 'ALL', enum: 0xF00 }
 };
 
-/**
- * Check if the given actualLevel is enabled with the current level checkLevel.
- */
-function isLogLevelEnabled(actualLevel, checkLevel) {
-    return (actualLevel.enum & checkLevel.enum) === actualLevel.enum;
-}
-
 //Default values we expand objects and arrays to
 const DEFAULT_EXPAND_DEPTH = 2;
 const DEFAULT_EXPAND_OBJECT_LENGTH = 1024;
@@ -555,6 +548,22 @@ BlockList.prototype.addTagOnlyEntry = function (tag) {
 };
 
 /**
+ * Add functions to process general values via lookup on typeid number in prototype array
+ */
+const AddGeneralValue_RemainingTypesCallTable = new Array(TypeNameEnum_Limit);
+AddGeneralValue_RemainingTypesCallTable.fill(null);
+
+AddGeneralValue_RemainingTypesCallTable[TypeNameEnum_Date] = function (blockList, value, depth) { blockList.addJsVarValueEntry(new Date(value)); };
+AddGeneralValue_RemainingTypesCallTable[TypeNameEnum_Function] = function (blockList, value, depth) { blockList.addJsVarValueEntry('[ #Function# ' + value.name + ' ]'); };
+
+AddGeneralValue_RemainingTypesCallTable[TypeNameEnum_Object] = function (blockList, value, depth) { blockList.addExpandedObject(value, depth, DEFAULT_EXPAND_OBJECT_LENGTH); };
+AddGeneralValue_RemainingTypesCallTable[TypeNameEnum_JsArray] = function (blockList, value, depth) { blockList.addExpandedArray(value, depth, DEFAULT_EXPAND_ARRAY_LENGTH); };
+AddGeneralValue_RemainingTypesCallTable[TypeNameEnum_TypedArray] = function (blockList, value, depth) { blockList.addExpandedArray(value, depth, DEFAULT_EXPAND_ARRAY_LENGTH); };
+
+AddGeneralValue_RemainingTypesCallTable[TypeNameEnum_Unknown] = function (blockList, value, depth) { blockList.addTagOnlyEntry(LogEntryTags_OpaqueObject); };
+
+
+/**
  * Add an expanded object value to the log
  * @method
  * @param {Object} obj the object to expand into the log
@@ -586,7 +595,7 @@ BlockList.prototype.addExpandedObject = function (obj, depth, length) {
                 this.addJsVarValueEntry(value)
             }
             else {
-                (this.addGeneralValue_RemainingTypesCallTable[typeid])(this, value, depth);
+                (AddGeneralValue_RemainingTypesCallTable[typeid])(this, value, depth);
             }
 
             allowedLengthRemain--;
@@ -631,7 +640,7 @@ BlockList.prototype.addExpandedArray = function (obj, depth, length) {
                 this.addJsVarValueEntry(value)
             }
             else {
-                (this.addGeneralValue_RemainingTypesCallTable[typeid])(this, value, depth);
+                (AddGeneralValue_RemainingTypesCallTable[typeid])(this, value, depth);
             }
 
             if (i >= length) {
@@ -645,21 +654,6 @@ BlockList.prototype.addExpandedArray = function (obj, depth, length) {
         this.addTagOnlyEntry(LogEntryTags_RBrack);
     }
 };
-
-/**
- * Add functions to process general values via lookup on typeid number in prototype array
- */
-BlockList.prototype.addGeneralValue_RemainingTypesCallTable = new Array(TypeNameEnum_Limit);
-BlockList.prototype.addGeneralValue_RemainingTypesCallTable.fill(null);
-
-BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_Date] = function (blockList, value, depth) { blockList.addJsVarValueEntry(new Date(value)); };
-BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_Function] = function (blockList, value, depth) { blockList.addJsVarValueEntry('[ #Function# ' + value.name + ' ]'); };
-
-BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_Object] = function (blockList, value, depth) { blockList.addExpandedObject(value, depth, DEFAULT_EXPAND_OBJECT_LENGTH); };
-BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_JsArray] = function (blockList, value, depth) { blockList.addExpandedArray(value, depth, DEFAULT_EXPAND_ARRAY_LENGTH); };
-BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_TypedArray] = function (blockList, value, depth) { blockList.addExpandedArray(value, depth, DEFAULT_EXPAND_ARRAY_LENGTH); };
-
-BlockList.prototype.addGeneralValue_RemainingTypesCallTable[TypeNameEnum_Unknown] = function (blockList, value, depth) { blockList.addTagOnlyEntry(LogEntryTags_OpaqueObject); };
 
 ////////
 
@@ -696,10 +690,15 @@ LogMessage_RemainingTypesCallTable[FormatStringEntrySingletons.ARRAY_VAL.enum] =
 
 /**
  * Log a message into the logger
+ * @method
+ * @param {Object} macroInfo a record with the info for certain expando formatter entries
+ * @param {Object} level the level the message is being logged at
+ * @param {Object} fmt the format of the message
+ * @param {Array} args the arguments for the format message
  */
-function logMessage(blockList, macroInfo, level, fmt, args) {
-    blockList.addEntry(LogEntryTags_MsgFormat, fmt);
-    blockList.addEntry(LogEntryTags_MsgLevel, level);
+BlockList.prototype.logMessage = function (macroInfo, level, fmt, args) {
+    this.addEntry(LogEntryTags_MsgFormat, fmt);
+    this.addEntry(LogEntryTags_MsgLevel, level);
 
     for (let i = 0; i < fmt.formatterArray.length; ++i) {
         const formatEntry = fmt.formatterArray[i];
@@ -710,16 +709,16 @@ function logMessage(blockList, macroInfo, level, fmt, args) {
         }
         else if (formatSpec.kind === FormatStringEntryKind_Expando) {
             if (formatSpec.enum <= FormatStringEntrySingleton_LastMacroInfoExpandoEnum) {
-                blockList.addJsVarValueEntry(macroInfo[formatSpec.name]);
+                this.addJsVarValueEntry(macroInfo[formatSpec.name]);
             }
             else {
                 if (formatSpec === FormatStringEntrySingletons.MSG_NAME) {
-                    blockList.addJsVarValueEntry(fmt.name);
+                    this.addJsVarValueEntry(fmt.name);
                 }
                 else {
                     //TODO: remove this later but useful for initial testing
                     assert(formatSpec === FormatStringEntrySingletons.WALLTIME, 'Should not be any other options');
-                    blockList.addJsVarValueEntry(Date.now());
+                    this.addJsVarValueEntry(Date.now());
                 }
             }
         }
@@ -729,7 +728,7 @@ function logMessage(blockList, macroInfo, level, fmt, args) {
 
             if (formatEntry.argPosition >= args.length) {
                 //We hit a bad format value so rather than let it propigate -- report and move on.
-                blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
+                this.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
             }
             else {
                 const value = args[formatEntry.argPosition];
@@ -737,51 +736,59 @@ function logMessage(blockList, macroInfo, level, fmt, args) {
 
                 if (formatSpec.enum <= FormatStringEntrySingleton_LastBasicFormatterEnum) {
                     if (FormatTypeToArgTypeCheckArray[formatSpec.enum] === typeid) {
-                        blockList.addJsVarValueEntry(value);
+                        this.addJsVarValueEntry(value);
                     }
                     else {
-                        blockList.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
+                        this.addTagOnlyEntry(LogEntryTags_JsBadFormatVar);
                     }
                 }
                 else if (formatSpec === FormatStringEntrySingletons.GENERAL_VAL) {
                     if (typeid <= TypeNameEnum_LastSimpleType) {
-                        blockList.addJsVarValueEntry(value)
+                        this.addJsVarValueEntry(value)
                     }
                     else {
-                        (this.addGeneralValue_RemainingTypesCallTable[typeid])(blockList, typeid, value, depth);
+                        (AddGeneralValue_RemainingTypesCallTable[typeid])(this, typeid, value, depth);
                     }
                 }
                 else {
-                    (LogMessage_RemainingTypesCallTable[formatSpec.enum])(blockList, typeid, fmt, value)
+                    (LogMessage_RemainingTypesCallTable[formatSpec.enum])(this, typeid, fmt, value)
                 }
             }
         }
     }
 
-    blockList.addTagOnlyEntry(LogEntryTags_MsgEndSentinal);
+    this.addTagOnlyEntry(LogEntryTags_MsgEndSentinal);
 }
 
 /////////////////////////////
 //Code for filtering the in memory representation and for writing out
 
 /**
- * Check if the message (starting at cblock[cpos]) is enabled for writing at the given level
+ * Check if the message (starting at this[cpos]) is enabled for writing at the given level
+ * @function
+ * @param {Object} cblock the current block we are processing
+ * @param {number} cpos the position to check the level at
+ * @param {Object} the logging level we want to see if is enabled
+ * @returns {bool}
  */
 function isLevelEnabledForWrite(cblock, cpos, trgtLevel) {
     //TODO: take this out later for performance but good initial sanity check
     assert((cpos + 1 < cblock.count) ? cblock.tags[cpos + 1] : block.next.tags[0] === LogEntryTags_MsgLevel);
 
     let mlevel = (cpos + 1 < cblock.count) ? cblock.data[cpos + 1] : block.next.data[0];
-    return isLogLevelEnabled(mlevel, trgtLevel);
+    return (mlevel.enum & trgtLevel.enum) === mlevel.enum;
 }
 
 /**
  * (1) Filter out all the msgs that we want to drop when writing to disk and copy them to the pending write list.
  * (2) Process the blocks for native emitting (if needed)
+ * @method
+ * @param {Object} retainLevel the logging level to retain at
+ * @param {Object} pendingWriteBlockList the block list to add into
  */
-function processMsgsForWrite(inMemoryBlockList, retainLevel, pendingWriteBlockList) {
+BlockList.prototype.processMsgsForWrite = function (retainLevel, pendingWriteBlockList) {
     let scanForMsgEnd = false;
-    for (let cblock = inMemoryBlockList.head; cblock !== null; cblock = cblock.next) {
+    for (let cblock = this.head; cblock !== null; cblock = cblock.next) {
         for (let pos = 0; pos < cblock.count; ++pos) {
             if (scanForMsgEnd) {
                 scanForMsgEnd = (cblock.tags[pos] !== LogEntryTags_MsgEndSentinal);
@@ -796,7 +803,7 @@ function processMsgsForWrite(inMemoryBlockList, retainLevel, pendingWriteBlockLi
             }
         }
     }
-    inMemoryBlockList.clear();
+    this.clear();
 
     if (global.processForNativeWrite) {
         process.stderr.write('Native writing is not implemented yet!!!');
@@ -809,18 +816,16 @@ function processMsgsForWrite(inMemoryBlockList, retainLevel, pendingWriteBlockLi
 /**
  * When we are emitting we can be in multiple modes (formatting, objects, arrays, etc.) so we want tags (used below to indicate)
  */
-let EmitModes = {
-    Clear: 0x0,
-    MsgFormat: 0x1,
-    ObjectLevel: 0x2,
-    ArrayLevel: 0x3
-};
+const EmitMode_Clear = 0;
+const EmitMode_MsgFormat = 1;
+const EmitMode_ObjectLevel = 2;
+const EmitMode_ArrayLevel = 3;
 
 /**
  * Create an emit state stack entry for a formatter msg
  */
 function emitStack_createFormatterState(fmt) {
-    return { mode: EmitModes.MsgFormat, commaInsert: false, format: fmt, formatterIndex: 0 };
+    return { mode: EmitMode_MsgFormat, commaInsert: false, format: fmt, formatterIndex: 0 };
 }
 
 /**
@@ -952,7 +957,7 @@ function emitter_pushFormatState(emitter, fmt) {
  * Push an object format msg state and write opening {
  */
 function emitter_pushObjectState(emitter) {
-    emitter.stateStack.push(emitStack_createJSONState(EmitModes.ObjectLevel));
+    emitter.stateStack.push(emitStack_createJSONState(EmitMode_ObjectLevel));
     emitter.writer.emitChar("{");
 }
 
@@ -960,7 +965,7 @@ function emitter_pushObjectState(emitter) {
  * Push an array format msg state and write opening [
  */
 function emitter_pushArrayState(emitter) {
-    emitter.stateStack.push(emitStack_createJSONState(EmitModes.ArrayLevel));
+    emitter.stateStack.push(emitStack_createJSONState(EmitMode_ArrayLevel));
     emitter.writer.emitChar('[');
 }
 
@@ -976,14 +981,14 @@ function emitter_peekEmitState(emitter) {
  */
 function emitter_popEmitState(emitter) {
     let pentry = emitter.stateStack.pop();
-    if (pentry.mode == EmitModes.MsgFormat) {
+    if (pentry.mode == EmitMode_MsgFormat) {
         emitter_emitEntryEnd(emitter.writer);
     }
     else {
-        emitter.writer.emitChar(pentry.mode === EmitModes.ObjectLevel ? '}' : ']');
+        emitter.writer.emitChar(pentry.mode === EmitMode_ObjectLevel ? '}' : ']');
 
         let sentry = emitter_peekEmitState(emitter);
-        if (sentry.mode === EmitModes.MsgFormat) {
+        if (sentry.mode === EmitMode_MsgFormat) {
             emitter_emitFormatMsgSpan(emitter);
         }
     }
@@ -1011,7 +1016,7 @@ function emitter_emitFormatEntry(emitter, tag, data) {
     let sentry = emitter_peekEmitState(emitter);
     let fmt = sentry.format;
 
-    assert(sentry.mode === EmitModes.MsgFormat, "Shound not be here then.");
+    assert(sentry.mode === EmitMode_MsgFormat, "Shound not be here then.");
 
     if (tag === LogEntryTags_MsgEndSentinal) {
         emitter_popEmitState(emitter);
@@ -1107,7 +1112,7 @@ function emitter_emitObjectEntry(emitter, tag, data) {
     let writer = emitter.writer;
     let sentry = emitter_peekEmitState(emitter);
 
-    assert(sentry.mode === EmitModes.ObjectLevel, "Shound not be here then.");
+    assert(sentry.mode === EmitMode_ObjectLevel, "Shound not be here then.");
 
     if (tag === LogEntryTags_RParen) {
         emitter_popEmitState(emitter);
@@ -1143,7 +1148,7 @@ function emitter_emitArrayEntry(emitter, tag, data) {
     let writer = emitter.writer;
     let sentry = emitter_peekEmitState(emitter);
 
-    assert(sentry.mode === EmitModes.ObjectLevel, "Shound not be here then.");
+    assert(sentry.mode === EmitMode_ObjectLevel, "Shound not be here then.");
 
     if (tag === LogEntryTags_RBrack) {
         emitter_popEmitState(emitter);
@@ -1176,10 +1181,10 @@ function emitter_emitMsg(emitter) {
     let tag = emitter.block.tags[emitter.pos];
     let data = emitter.block.data[emitter.pos];
 
-    if (state === EmitModes.MsgFormat) {
+    if (state === EmitMode_MsgFormat) {
         emitter_emitFormatEntry(emitter, tag, data);
     }
-    else if (state === EmitModes.ObjectLevel) {
+    else if (state === EmitMode_ObjectLevel) {
         emitter_emitObjectEntry(emitter, tag, data);
     }
     else {
@@ -1241,21 +1246,26 @@ function emitBlockList(emitter, blockList) {
  */
 function createConsoleWriter() {
     let process = require('process');
+    let sb = '';
     return {
         emitChar: function (c) {
-            process.stdout.write(c);
+            sb = sb + c;
         },
         emitFullString: function (str) {
-            process.stdout.write(str);
+            sb = sb + str;
         },
         emitStringSpan: function (str, start, end) {
-            process.stdout.write(str.substr(start, end - start));
+            sb = sb + str.substr(start, end - start);
         },
         needsToDrain: function () {
-            return false;
+            if (sb.length > 1024) {
+                return true;
+            }
         },
         drain: function (cb) {
-            assert(false, 'Should never be trying to drain!');
+            let wb = sb;
+            sb = '';
+            process.stdout.write(wb, cb);
         }
     }
 }
@@ -1272,10 +1282,6 @@ exports.createMsgFormat = extractMsgFormat;
 
 //Export function for logging a message into the in-memory logging buffer
 exports.createBlockList = function createBlockList() { return new BlockList(); }
-exports.logMsg = logMessage;
-
-//Export a function to filter in-memory messages into a block for emit
-exports.processMsgsForWrite = processMsgsForWrite;
 
 //Export a function for creating an emitter
 exports.createEmitter = emitter_createEmitter;
