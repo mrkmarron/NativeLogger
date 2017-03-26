@@ -1252,9 +1252,10 @@ Emitter.prototype.emitMsg = function (currStackEntry) {
 /**
  * The main process loop for the emitter -- write a full message and check if drain is required + cb invoke.
  * @method
+ * @param {bool} clearWhenDone true if we want to clear the blocks when we are done
  * @param {Function} fcb the (optional) final callback when the all the data is flushed
  */
-Emitter.prototype.processLoop = function (fcb) {
+Emitter.prototype.processLoop = function (clearWhenDone, fcb) {
     let flush = false;
     while (this.block !== null && this.pos != this.block.count && !flush) {
         const tag = this.block.tags[this.pos];
@@ -1285,10 +1286,17 @@ Emitter.prototype.processLoop = function (fcb) {
     if (flush) {
         const _self = this;
         this.writer.drain(function () {
-            _self.processLoop(fcb);
+            _self.processLoop(clearWhenDone, fcb);
         });
     }
     else {
+        if(clearWhenDone) {
+            this.blockList.clear();
+            this.blockList = null;
+            this.block = null;
+            this.pos = 0;
+        }
+
         let lcb = fcb || function () { ; };
         this.writer.drain(lcb);
     }
@@ -1298,11 +1306,12 @@ Emitter.prototype.processLoop = function (fcb) {
  * Call this method to emit a blocklist (as needed).
  * @method
  * @param {BlockList} blockList the BlockList of data we want to have emitted
+ * @param {bool} clearWhenDone true if we want to clear the blocks when we are done
  * @param {Function} fcb the (optional) final callback when the all the data is flushed
  */
-Emitter.prototype.emitBlockList = function (blockList, fcb) {
+Emitter.prototype.emitBlockList = function (blockList, clearWhenDone, fcb) {
     this.appendBlockList(blockList);
-    this.processLoop(fcb);
+    this.processLoop(clearWhenDone, fcb);
 }
 
 /////////////////////////////
@@ -1317,47 +1326,212 @@ function isLevelEnabledForLogging(checkLevel, enabledLevel) {
 }
 
 /**
- * Log a message into the logger -- specialized for each level and also a NOP version
+ * Log a message into the logger -- specialized for NOP
  */
-function doMsgLog_FATAL(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.FATAL, fmt, args); }
-function doMsgLog_ERROR(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.ERROR, fmt, args); }
-function doMsgLog_WARN(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.WARN, fmt, args); }
-function doMsgLog_INFO(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.INFO, fmt, args); }
-function doMsgLog_DEBUG(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.DEBUG, fmt, args); }
-function doMsgLog_TRACE(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.TRACE, fmt, args); }
-
 function doMsgLog_NOP(level, fmt, ...args) { ; }
 
 /**
- * Constructor for a Logger
+ * Constructor for the RootLogger
  * @constructor
- * @param {string} moduleName name of the module this is defined for
- * @param {Logger} rootLogger the logger for the root module
- * @param {Object} globalMacroInfo the macro info that is common to all the loggers
- * @param {Object} memoryLevel the level to write into memory log
- * @param {Object} writeLevel the level to write into the stable storage writer
+ * @param {string} appName name of the root module (application)
  * @param {Object} writer the writer that we can eventually emit into
+ * @param {string} ip the ip address of the host
  */
-function Logger(moduleName, rootLogger, globalMacroInfo, memoryLevel, writeLevel, writer) {
-    this.memoryLogLevel = memoryLevel;
-    this.memoryBlockList = new BlockList();
+function LoggerFactory(appName, writer, ip) {
+    //Since this will be exposed to the user we want to protect the state from accidental 
+    //modification. This state is common to all loggers and will be shared.
+    const m_globalMacroInfo = {
+        IP_ADDR: ip,
+        APP_NAME: appName,
+        MODULE_NAME: appName,
+        LOGICAL_TIME: 0,
+        CALLBACK_ID: -1,
+        REQUEST_ID: -1
+    };
 
-    this.writeLogLevel = writeLevel;
-    this.writeBlockList = new BlockList();
-    this.writer = writer;
+    //Blocklists containing the information logged into memory and pending to write out
+    const m_memoryBlockList = new BlockList();
+    const m_writeBlockList = new BlockList();
 
-    this.macroInfo = Object.create(globalMacroInfo);
-    this.macroInfo.MODULE_NAME = moduleName;
+    //The writer to emit data from the writeBlockList
+    const m_emitter = new Emitter(writer);
 
-    this.fatal = isLevelEnabledForLogging(LoggingLevels.FATAL, memoryLevel) ? doMsgLog_FATAL : doMsgLog_NOP;
-    this.error = isLevelEnabledForLogging(LoggingLevels.ERROR, memoryLevel) ? doMsgLog_ERROR : doMsgLog_NOP;
-    this.warn = isLevelEnabledForLogging(LoggingLevels.WARN, memoryLevel) ? doMsgLog_WARN : doMsgLog_NOP;
-    this.info = isLevelEnabledForLogging(LoggingLevels.INFO, memoryLevel) ? doMsgLog_INFO : doMsgLog_NOP;
-    this.debug = isLevelEnabledForLogging(LoggingLevels.DEBUG, memoryLevel) ? doMsgLog_DEBUG : doMsgLog_NOP;
-    this.trace = isLevelEnabledForLogging(LoggingLevels.TRACE, memoryLevel) ? doMsgLog_TRACE : doMsgLog_NOP;
+    /**
+     * Create a logger for a given module
+     * @param {string} moduleName name of the module this is defined for
+     * @param {Object} memoryLevel the level to write into memory log
+     * @param {Object} writeLevel the level to write into the stable storage writer
+     */
+    this.createLogger = function (moduleName, memoryLevel, writeLevel) {
+        return new Logger(moduleName, memoryLevel, writeLevel);
+    }
+
+    //////////
+    //Define the actual logger class that gets created for each module require
+
+    /**
+    * Constructor for a Logger
+    * @constructor
+    * @param {string} moduleName name of the module this is defined for
+    * @param {Object} memoryLevel the level to write into memory log
+    * @param {Object} writeLevel the level to write into the stable storage writer
+    */
+    function Logger(moduleName, memoryLevel, writeLevel) {
+        let m_memoryLogLevel = memoryLevel;
+        let m_writeLogLevel = writeLevel;
+
+        //all the formats we know about string -> MsgFormat Object
+        const m_formatInfo = new Map();
+
+        let m_macroInfo = Object.create(m_globalMacroInfo);
+        m_macroInfo.MODULE_NAME = moduleName;
+
+        /**
+         * Update the logical time/requestId/callbackId/etc.
+         */
+        this.incrementLogicalTime = function () { m_globalMacroInfo.LOGICAL_TIME++; }
+
+        this.getCurrentRequestId = function () { m_globalMacroInfo.REQUEST_ID; }
+        this.setCurrentRequestId = function (requestId) { m_globalMacroInfo.REQUEST_ID = requestId; }
+
+        this.getCurrentCallbackId = function () { m_globalMacroInfo.CALLBACK_ID; }
+        this.setCurrentCallbackId = function (callbackId) { m_globalMacroInfo.CALLBACK_ID = callbackId; }
+
+        /**
+         * Add a new format to the format map
+         */
+        this.addFormat = function (fmtName, fmtInfo) {
+            try {
+                const fmtObj = extractMsgFormat(fmtName, fmtInfo);
+                m_formatInfo.set(fmtName, fmtObj);
+            }
+            catch (ex) {
+                process.stderr.write('Hard failure in format extract -- ' + ex.toString() + '\n');
+            }
+        }
+
+        /**
+         * Log a messages at various levels.
+         */
+        this.fatal = isLevelEnabledForLogging(LoggingLevels.FATAL, memoryLevel)
+            ? function (fmt, ...args) {
+                try {
+                    const fmti = m_formatInfo.get(fmt);
+                    if (fmti === undefined) {
+                        throw new Error('Format name is not defined for this logger: ' + fmt);
+                    }
+
+                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.FATAL, fmti, args);
+                }
+                catch (ex) {
+                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
+                }
+            }
+            : doMsgLog_NOP;
+
+        this.error = isLevelEnabledForLogging(LoggingLevels.ERROR, memoryLevel)
+            ? function (fmt, ...args) {
+                try {
+                    const fmti = m_formatInfo.get(fmt);
+                    if (fmti === undefined) {
+                        throw new Error('Format name is not defined for this logger: ' + fmt);
+                    }
+
+                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.ERROR, fmti, args);
+                }
+                catch (ex) {
+                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
+                }
+            }
+            : doMsgLog_NOP;
+
+        this.warn = isLevelEnabledForLogging(LoggingLevels.WARN, memoryLevel)
+            ? function (fmt, ...args) {
+                try {
+                    const fmti = m_formatInfo.get(fmt);
+                    if (fmti === undefined) {
+                        throw new Error('Format name is not defined for this logger: ' + fmt);
+                    }
+
+                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.WARN, fmti, args);
+                }
+                catch (ex) {
+                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
+                }
+            }
+            : doMsgLog_NOP;
+
+        this.info = isLevelEnabledForLogging(LoggingLevels.INFO, memoryLevel)
+            ? function (fmt, ...args) {
+                try {
+                    const fmti = m_formatInfo.get(fmt);
+                    if (fmti === undefined) {
+                        throw new Error('Format name is not defined for this logger: ' + fmt);
+                    }
+
+                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.INFO, fmti, args);
+                }
+                catch (ex) {
+                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
+                }
+            }
+            : doMsgLog_NOP;
+
+        this.debug = isLevelEnabledForLogging(LoggingLevels.DEBUG, memoryLevel)
+            ? function (fmt, ...args) {
+                try {
+                    const fmti = m_formatInfo.get(fmt);
+                    if (fmti === undefined) {
+                        throw new Error('Format name is not defined for this logger: ' + fmt);
+                    }
+
+                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.DEBUG, fmti, args);
+                }
+                catch (ex) {
+                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
+                }
+            }
+            : doMsgLog_NOP;
+
+        this.trace = isLevelEnabledForLogging(LoggingLevels.TRACE, memoryLevel)
+            ? function (fmt, ...args) {
+                try {
+                    const fmti = m_formatInfo.get(fmt);
+                    if (fmti === undefined) {
+                        throw new Error('Format name is not defined for this logger: ' + fmt);
+                    }
+
+                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.TRACE, fmti, args);
+                }
+                catch (ex) {
+                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
+                }
+            }
+            : doMsgLog_NOP;
+
+        /**
+         * Process the current message set for writing 
+         */
+        this.processMsgsForWrite = function() {
+            m_memoryBlockList.processMsgsForWrite(m_writeLogLevel, m_writeBlockList, true);
+        }
+
+        /**
+         * Emit the messages in our queue
+         */
+        this.emit = function(optCompleteFunction) {
+            m_emitter.emitBlockList(m_writeBlockList, true, optCompleteFunction);
+        }
+
+        /**
+         * Process msgs and emit them immedately to a special location ...
+         */
+        this.processAndEmitImmediate = function (altWriter) {
+            //TODO probably want to set the alt writer as an option instead of argument here...
+            assert(false, 'Not implemented yet');
+        }
+    }
 }
-
-
 
 /////////////////////////////
 //Code for various writer implementations
@@ -1398,14 +1572,8 @@ function createConsoleWriter() {
 exports.LoggingLevels = LoggingLevels;
 exports.SystemInfoLevels = SystemInfoLevels;
 
-//Export function to create a message format from a string or object/array
-exports.createMsgFormat = extractMsgFormat;
-
-//Export function for logging a message into the in-memory logging buffer
-exports.createBlockList = function () { return new BlockList(); }
-
 //Export a function for creating an emitter
-exports.createEmitter = function (writer) { return new Emitter(writer) };
+exports.createLoggerFactory = function (appName, writer, ip) { return new LoggerFactory(appName, writer, ip) };
 
 //Create a console writer
 exports.createConsoleWriter = createConsoleWriter;
