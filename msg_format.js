@@ -882,7 +882,7 @@ FormatStateEntry.prototype.getFormatRangeEnd = function () {
 
 
 /**
- * Constructor for an blockList emitter
+ * Constructor for a blockList emitter
  * @constructor
  * @param {Object} writer for the data
  */
@@ -1304,6 +1304,60 @@ Emitter.prototype.emitBlockList = function (blockList, fcb) {
     this.appendBlockList(blockList);
     this.processLoop(fcb);
 }
+
+/////////////////////////////
+//Code for the actual exported logger
+
+/**
+ * Check if the message (starting at this[cpos]) is enabled for writing at the given level
+ * @function
+ */
+function isLevelEnabledForLogging(checkLevel, enabledLevel) {
+    return (checkLevel.enum & enabledLevel.enum) === checkLevel.enum;
+}
+
+/**
+ * Log a message into the logger -- specialized for each level and also a NOP version
+ */
+function doMsgLog_FATAL(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.FATAL, fmt, args); }
+function doMsgLog_ERROR(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.ERROR, fmt, args); }
+function doMsgLog_WARN(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.WARN, fmt, args); }
+function doMsgLog_INFO(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.INFO, fmt, args); }
+function doMsgLog_DEBUG(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.DEBUG, fmt, args); }
+function doMsgLog_TRACE(fmt, ...args) { this.memoryBlockList.logMessage(this.macroInfo, LoggingLevels.TRACE, fmt, args); }
+
+function doMsgLog_NOP(level, fmt, ...args) { ; }
+
+/**
+ * Constructor for a Logger
+ * @constructor
+ * @param {string} moduleName name of the module this is defined for
+ * @param {Logger} rootLogger the logger for the root module
+ * @param {Object} globalMacroInfo the macro info that is common to all the loggers
+ * @param {Object} memoryLevel the level to write into memory log
+ * @param {Object} writeLevel the level to write into the stable storage writer
+ * @param {Object} writer the writer that we can eventually emit into
+ */
+function Logger(moduleName, rootLogger, globalMacroInfo, memoryLevel, writeLevel, writer) {
+    this.memoryLogLevel = memoryLevel;
+    this.memoryBlockList = new BlockList();
+
+    this.writeLogLevel = writeLevel;
+    this.writeBlockList = new BlockList();
+    this.writer = writer;
+
+    this.macroInfo = Object.create(globalMacroInfo);
+    this.macroInfo.MODULE_NAME = moduleName;
+
+    this.fatal = isLevelEnabledForLogging(LoggingLevels.FATAL, memoryLevel) ? doMsgLog_FATAL : doMsgLog_NOP;
+    this.error = isLevelEnabledForLogging(LoggingLevels.ERROR, memoryLevel) ? doMsgLog_ERROR : doMsgLog_NOP;
+    this.warn = isLevelEnabledForLogging(LoggingLevels.WARN, memoryLevel) ? doMsgLog_WARN : doMsgLog_NOP;
+    this.info = isLevelEnabledForLogging(LoggingLevels.INFO, memoryLevel) ? doMsgLog_INFO : doMsgLog_NOP;
+    this.debug = isLevelEnabledForLogging(LoggingLevels.DEBUG, memoryLevel) ? doMsgLog_DEBUG : doMsgLog_NOP;
+    this.trace = isLevelEnabledForLogging(LoggingLevels.TRACE, memoryLevel) ? doMsgLog_TRACE : doMsgLog_NOP;
+}
+
+
 
 /////////////////////////////
 //Code for various writer implementations
