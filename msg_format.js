@@ -48,12 +48,12 @@ const LoggingLevels = {
 };
 
 /**
- * Tag values for system info logging levels.
+ * Tag values for system info logging levels
  */
 const SystemInfoLevels = {
     OFF: { label: 'OFF', enum: 0x0 },
-    REQUEST: { label: 'REQUEST', enum: 0x100 },
-    ASYNC: { label: 'ASYNC', enum: 0x300 },
+    REQUEST: { label: 'REQUEST', enum: 0x100 }, // if enabled written into the log at INFO level.
+    ASYNC: { label: 'ASYNC', enum: 0x300 }, // if enabled written into the log at DEBUG level.
     ALL: { label: 'ALL', enum: 0xF00 }
 };
 
@@ -785,28 +785,37 @@ function isLevelEnabledForWrite(cblock, cpos, trgtLevel) {
  * @method
  * @param {Object} retainLevel the logging level to retain at
  * @param {Object} pendingWriteBlockList the block list to add into
+ * @param {bool} clearMemoryBlockList a flag indicating if we want to clear the block list after the copy
  */
-BlockList.prototype.processMsgsForWrite = function (retainLevel, pendingWriteBlockList) {
+BlockList.prototype.processMsgsForWrite = function (retainLevel, pendingWriteBlockList, clearMemoryBlockList) {
     let scanForMsgEnd = false;
     for (let cblock = this.head; cblock !== null; cblock = cblock.next) {
-        for (let pos = 0; pos < cblock.count; ++pos) {
+        let pos = 0;
+        while (pos < cblock.count) {
             if (scanForMsgEnd) {
-                scanForMsgEnd = (cblock.tags[pos] !== LogEntryTags_MsgEndSentinal);
+                while (scanForMsgEnd && pos < cblock.count) {
+                    scanForMsgEnd = (cblock.tags[pos] !== LogEntryTags_MsgEndSentinal);
+
+                    pos++;
+                }
             }
             else {
-                if (cblock.tags[pos] === LogEntryTags_MsgFormat && !isLevelEnabledForWrite(cblock, pos, retainLevel)) {
-                    scanForMsgEnd = true;
-                }
-                else {
-                    pendingWriteBlockList.addEntry(cblock.tags[pos], cblock.data[pos]);
+                while (!scanForMsgEnd && pos < cblock.count) {
+                    if (cblock.tags[pos] === LogEntryTags_MsgFormat && !isLevelEnabledForWrite(cblock, pos, retainLevel)) {
+                        scanForMsgEnd = true;
+                    }
+                    else {
+                        pendingWriteBlockList.addEntry(cblock.tags[pos], cblock.data[pos]);
+                    }
+
+                    pos++;
                 }
             }
         }
     }
-    this.clear();
 
-    if (global.processForNativeWrite) {
-        process.stderr.write('Native writing is not implemented yet!!!');
+    if (clearMemoryBlockList) {
+        this.clear();
     }
 }
 
@@ -1034,68 +1043,56 @@ Emitter.prototype.emitFormatMsgSpan = function (currStackEntry) {
  * Emit a value when we are in format entry mode.
  * @method
  * @param {Object} currStackEntry the current state stack entry
- * @param {number} tag the value tag from the log
- * @param {*} data the value data from the log
+ * @returns {bool} true if we finished emitting a format message
  */
-Emitter.prototype.emitFormatEntry = function (currStackEntry, tag, data) {
+Emitter.prototype.emitFormatEntry = function (currStackEntry) {
     assert(currStackEntry.mode === EmitMode_MsgFormat, "Shound not be here then.");
 
-    if (tag === LogEntryTags_MsgEndSentinal) {
-        this.popEmitState();
-    }
-    else {
-        if (tag === LogEntryTags_MsgLevel) {
-            //write format string to first formatter pos (or entire string if no formatters) and set the stack as needed.
-            this.emitEntryStart();
+    while (this.pos < this.block.count) {
+        const tag = this.block.tags[this.pos];
+        if (tag === LogEntryTags_MsgEndSentinal) {
+            this.popEmitState();
 
-            const logLevelKey = Object.keys(LoggingLevels).find(function (value) {
-                return LoggingLevels[value].enum === (data.enum & LoggingLevels.ALL.enum);
-            });
-            const logLevelEntry = LoggingLevels[logLevelKey];
-
-            const systemLevelKey = Object.keys(SystemInfoLevels).find(function (value) {
-                return SystemInfoLevels[value].enum === (data.enum & SystemInfoLevels.ALL.enum);
-            });
-            const systemLevelEntry = SystemInfoLevels[systemLevelKey];
-
-            const writer = this.writer;
-            writer.emitFullString('level: ');
-            if (logLevelEntry !== LoggingLevels.OFF && systemLevelEntry !== SystemInfoLevels.OFF) {
-                writer.emitFullString('(logging: ');
-                writer.emitFullString(logLevelEntry.label);
-                writer.emitFullString(', system: ');
-                writer.emitFullString(systemLevelEntry.label);
-                writer.emitFullString(')');
-
-            }
-            else {
-                if (logLevelEntry) {
-                    writer.emitFullString(logLevelEntry.label);
-                }
-                else {
-                    writer.emitFullString(systemLevelEntry.label);
-                }
-            }
-
-            writer.emitFullString(', msg: ')
-            if (currStackEntry.formatArray.length === 0) {
-                writer.emitFullString(currStackEntry.formatString);
-            }
-            else {
-                const fpos = currStackEntry.formatArray[0].formatStart;
-                writer.emitStringSpan(currStackEntry.formatString, 0, fpos);
-            }
+            //don't advance pos here -- it will get taken care of in top loop
+            return true;
         }
-        else if (tag === LogEntryTags_LParen) {
+
+        if (tag === LogEntryTags_LParen) {
             this.pushFormatState(EmitMode_ObjectLevel, '{', undefined);
+
+            this.pos++;
+            this.emitObjectEntry(this.peekEmitState());
         }
         else if (tag === LogEntryTags_LBrack) {
             this.pushFormatState(EmitMode_ArrayLevel, '[', undefined);
+
+            this.pos++;
+            this.emitArrayEntry(this.peekEmitState());
         }
         else if (tag === LogEntryTags_JsBadFormatVar || tag === LogEntryTags_OpaqueValue) {
             this.emitSpecialVar(tag);
+            this.pos++
+        }
+        else if (tag === LogEntryTags_MsgLevel) {
+            const data = this.block.data[this.pos];
+            this.emitEntryStart();
+
+            this.writer.emitFullString('level: ');
+            this.writer.emitFullString(data.label);
+
+            this.writer.emitFullString(', msg: ')
+            if (currStackEntry.formatArray.length === 0) {
+                this.writer.emitFullString(currStackEntry.formatString);
+            }
+            else {
+                const fpos = currStackEntry.formatArray[0].formatStart;
+                this.writer.emitStringSpan(currStackEntry.formatString, 0, fpos);
+            }
+
+            this.pos++;
         }
         else {
+            const data = this.block.data[this.pos];
             const formatEntry = currStackEntry.formatArray[currStackEntry.formatterIndex];
             const formatSpec = formatEntry.format;
 
@@ -1116,31 +1113,37 @@ Emitter.prototype.emitFormatEntry = function (currStackEntry, tag, data) {
                 }
             }
             else {
-                //TODO: remove this after we are done debugging a bit
-                assert(formatSpec.kind === FormatStringEntryKind_Basic || formatSpec.kind === FormatStringEntryKind_Compound, "No other options");
-
                 this.emitSimpleVar(data);
             }
 
             this.emitFormatMsgSpan(currStackEntry);
+            this.pos++;
         }
     }
+
+    return false;
 }
 
 /**
  * Emit a value when we are in object entry mode.
  * @method
  * @param {Object} currStackEntry the current state stack entry
- * @param {number} tag the value tag from the log
- * @param {*} data the value data from the log
  */
-Emitter.prototype.emitObjectEntry = function (currStackEntry, tag, data) {
+Emitter.prototype.emitObjectEntry = function (currStackEntry) {
     assert(currStackEntry.mode === EmitMode_ObjectLevel, "Shound not be here then.");
 
-    if (tag === LogEntryTags_RParen) {
-        this.popEmitState();
-    }
-    else {
+    while (this.pos < this.block.count) {
+        const tag = this.block.tags[this.pos];
+        const data = this.block.data[this.pos];
+
+        if (tag === LogEntryTags_RParen) {
+            this.popEmitState();
+
+            //advance pos here -- it is needed or we move to this.pos === this.block.count and top level loop will sort it out right
+            this.cpos++;
+            return;
+        }
+
         if (tag === LogEntryTags_PropertyRecord) {
             if (currStackEntry.checkAndUpdateNeedsComma()) {
                 this.writer.emitFullString(', ');
@@ -1148,18 +1151,28 @@ Emitter.prototype.emitObjectEntry = function (currStackEntry, tag, data) {
 
             this.emitJsString(data);
             this.writer.emitFullString(': ');
+
+            this.pos++;
         }
         else if (tag === LogEntryTags_LParen) {
             this.pushFormatState(EmitMode_ObjectLevel, '{', undefined);
+
+            this.pos++;
+            this.emitObjectEntry(this.peekEmitState());
         }
         else if (tag === LogEntryTags_LBrack) {
             this.pushArrayState(emitter);
+
+            this.pos++;
+            this.emitArrayEntry(this.peekEmitState());
         }
         else if (tag === LogEntryTags_JsVarValue) {
             this.emitSimpleVar(data);
+            this.pos++;
         }
         else {
             this.emitSpecialVar(tag);
+            this.pos++;
         }
     }
 }
@@ -1174,25 +1187,41 @@ Emitter.prototype.emitObjectEntry = function (currStackEntry, tag, data) {
 Emitter.prototype.emitArrayEntry = function (currStackEntry, tag, data) {
     assert(currStackEntry.mode === EmitMode_ObjectLevel, "Shound not be here then.");
 
-    if (tag === LogEntryTags_RBrack) {
-        this.popEmitState();
-    }
-    else {
+    while (this.pos < this.block.count) {
+        const tag = this.block.tags[this.pos];
+        const data = this.block.data[this.pos];
+
+        if (tag === LogEntryTags_RBrack) {
+            this.popEmitState();
+
+            //advance pos here -- it is needed or we move to this.pos === this.block.count and top level loop will sort it out right
+            this.cpos++;
+            return;
+        }
+
         if (currStackEntry.checkAndUpdateNeedsComma()) {
             this.writer.emitFullString(', ');
         }
 
         if (tag === LogEntryTags_LParen) {
             this.pushFormatState(EmitMode_ObjectLevel, '{', undefined);
+
+            this.pos++;
+            this.emitObjectEntry(this.peekEmitState());
         }
         else if (tag === LogEntryTags_LBrack) {
             this.pushFormatState(EmitMode_ArrayLevel, '[', undefined);
+
+            this.pos++;
+            this.emitArrayEntry(this.peekEmitState());
         }
         else if (tag === LogEntryTags_JsVarValue) {
             this.emitSimpleVar(data);
+            this.cpos++;
         }
         else {
             this.emitSpecialVar(tag);
+            this.cpos++;
         }
     }
 }
@@ -1201,20 +1230,22 @@ Emitter.prototype.emitArrayEntry = function (currStackEntry, tag, data) {
  * Emit a single message -- return true if more to emit false otherwise
  * @method
  * @param {Object} currStackEntry the current state stack entry
- * @param {number} tag the value tag from the log
- * @param {*} data the value data from the log
+ * @returns {bool} true if we finished emitting a format message
  */
-Emitter.prototype.emitMsg = function (currStackEntry, tag, data) {
+Emitter.prototype.emitMsg = function (currStackEntry) {
     const state = currStackEntry.mode;
 
     if (state === EmitMode_MsgFormat) {
-        this.emitFormatEntry(currStackEntry, tag, data);
-    }
-    else if (state === EmitMode_ObjectLevel) {
-        this.emitObjectEntry(currStackEntry, tag, data);
+        return this.emitFormatEntry(currStackEntry);
     }
     else {
-        this.emitArrayEntry(currStackEntry, tag, data);
+        if (state === EmitMode_ObjectLevel) {
+            this.emitObjectEntry(currStackEntry);
+        }
+        else {
+            this.emitArrayEntry(currStackEntry);
+        }
+        return false;
     }
 }
 
@@ -1227,14 +1258,17 @@ Emitter.prototype.processLoop = function (fcb) {
     let flush = false;
     while (this.block !== null && this.pos != this.block.count && !flush) {
         const tag = this.block.tags[this.pos];
-        const data = this.block.data[this.pos];
 
         if (tag === LogEntryTags_MsgFormat) {
-            this.pushFormatState(EmitMode_MsgFormat, undefined, data);
+            this.pushFormatState(EmitMode_MsgFormat, undefined, this.block.data[this.pos]);
         }
         else {
             const currStackEntry = this.peekEmitState();
-            this.emitMsg(currStackEntry, tag, data);
+            const msgCompleted = this.emitMsg(currStackEntry);
+
+            if (msgCompleted) {
+                flush = this.writer.needsToDrain();
+            }
         }
 
         //Advance the position of the emitter
@@ -1244,10 +1278,6 @@ Emitter.prototype.processLoop = function (fcb) {
         else {
             this.block = this.block.next;
             this.pos = 0;
-        }
-
-        if (tag === LogEntryTags_MsgEndSentinal) {
-            flush = this.writer.needsToDrain();
         }
     }
 
@@ -1295,7 +1325,7 @@ function createConsoleWriter() {
             sb = sb + str.substr(start, end - start);
         },
         needsToDrain: function () {
-            if (sb.length > 1024) {
+            if (sb.length > 2048) {
                 return true;
             }
         },

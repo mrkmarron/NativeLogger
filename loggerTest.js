@@ -23,7 +23,7 @@ logBlockList.logMessage(macroInfo, lgr.LoggingLevels.DEBUG, fmt_g1, ['ok', 5]);
 //Move data into the memory buffer
 let emitBlockList = lgr.createBlockList();
 
-logBlockList.processMsgsForWrite(lgr.LoggingLevels.ALL, emitBlockList);
+logBlockList.processMsgsForWrite(lgr.LoggingLevels.ALL, emitBlockList, true);
 
 ////
 //Write data to the console

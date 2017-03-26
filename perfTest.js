@@ -19,7 +19,6 @@ let macroInfo = {
 
 const iterCount = 100000;
 
-/*
 ////
 //console
 let clogstart = new Date();
@@ -41,7 +40,7 @@ for (var i = 0; i < iterCount; ++i) {
 
 let plogend = new Date();
 console.error(`Pino: Iters = ${iterCount} -- Log time = ${plogend - plogstart}ms`);
-*/
+
 ///
 //nativelogger
 let nlogstart = new Date();
@@ -54,7 +53,7 @@ for (var i = 0; i < iterCount; ++i) {
 //Move data into the memory buffer
 let emitBlockList = lgr.createBlockList();
 
-logBlockList.processMsgsForWrite(lgr.LoggingLevels.ALL, emitBlockList);
+logBlockList.processMsgsForWrite(lgr.LoggingLevels.ALL, emitBlockList, true);
 
 let nlogend = new Date();
 console.error(`NativeLogger: Iters = ${iterCount} -- Log time = ${nlogend - nlogstart}ms`);
