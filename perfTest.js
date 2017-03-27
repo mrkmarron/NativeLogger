@@ -39,18 +39,13 @@ for (var i = 0; i < iterCount; ++i) {
     logger.debug('fmt_g1', 'ok', i);
 }
 
-////
-//Move data into the memory buffer
-logger.processMsgsForWrite();
-
 let nlogend = new Date();
 console.error(`NativeLogger: Iters = ${iterCount} -- Log time = ${nlogend - nlogstart}ms`);
 
 ////
 //Write data to the console
 let nwritestart = new Date();
-
-logger.emit(function () {
+process.on('exit', function () {
     let nwriteend = new Date();
     console.error(`NativeLogger: Iters = ${iterCount} -- Write time = ${nwriteend - nwritestart}ms`);
 });

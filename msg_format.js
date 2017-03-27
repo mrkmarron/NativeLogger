@@ -1255,50 +1255,47 @@ Emitter.prototype.emitMsg = function (currStackEntry) {
  * @param {bool} clearWhenDone true if we want to clear the blocks when we are done
  * @param {Function} fcb the (optional) final callback when the all the data is flushed
  */
-Emitter.prototype.processLoop = function (clearWhenDone, fcb) {
+Emitter.prototype.processLoop = function (clearWhenDone) {
     let flush = false;
-    while (this.block !== null && this.pos != this.block.count && !flush) {
-        const tag = this.block.tags[this.pos];
+    while (this.block !== null) {
+        while (this.block !== null && !flush) {
+            const tag = this.block.tags[this.pos];
 
-        if (tag === LogEntryTags_MsgFormat) {
-            this.pushFormatState(EmitMode_MsgFormat, undefined, this.block.data[this.pos]);
-        }
-        else {
-            const currStackEntry = this.peekEmitState();
-            const msgCompleted = this.emitMsg(currStackEntry);
+            if (tag === LogEntryTags_MsgFormat) {
+                this.pushFormatState(EmitMode_MsgFormat, undefined, this.block.data[this.pos]);
+            }
+            else {
+                const currStackEntry = this.peekEmitState();
+                const msgCompleted = this.emitMsg(currStackEntry);
 
-            if (msgCompleted) {
-                flush = this.writer.needsToDrain();
+                if (msgCompleted) {
+                    flush = this.writer.needsToDrain();
+                }
+            }
+
+            //Advance the position of the emitter
+            if (this.pos < this.block.count - 1) {
+                this.pos++;
+            }
+            else {
+                this.block = this.block.next;
+                this.pos = 0;
             }
         }
 
-        //Advance the position of the emitter
-        if (this.pos < this.block.count - 1) {
-            this.pos++;
-        }
-        else {
-            this.block = this.block.next;
-            this.pos = 0;
-        }
-    }
+        //if we need to flush then call the writer drain with a callback to us
+        if (flush || this.block === null) {
+            flush = false;
+            this.writer.drain();
 
-    //if we need to flush then call the writer drain with a callback to us
-    if (flush) {
-        const _self = this;
-        this.writer.drain(function () {
-            _self.processLoop(clearWhenDone, fcb);
-        });
-    }
-    else {
-        if(clearWhenDone) {
-            this.blockList.clear();
-            this.blockList = null;
-            this.block = null;
-            this.pos = 0;
+            //We don't have any more to write out
+            if (this.block === null) {
+                this.blockList.clear();
+                this.blockList = null;
+                this.block = null;
+                this.pos = 0;
+            }
         }
-
-        let lcb = fcb || function () { ; };
-        this.writer.drain(lcb);
     }
 }
 
@@ -1306,12 +1303,10 @@ Emitter.prototype.processLoop = function (clearWhenDone, fcb) {
  * Call this method to emit a blocklist (as needed).
  * @method
  * @param {BlockList} blockList the BlockList of data we want to have emitted
- * @param {bool} clearWhenDone true if we want to clear the blocks when we are done
- * @param {Function} fcb the (optional) final callback when the all the data is flushed
  */
-Emitter.prototype.emitBlockList = function (blockList, clearWhenDone, fcb) {
+Emitter.prototype.emitBlockList = function (blockList) {
     this.appendBlockList(blockList);
-    this.processLoop(clearWhenDone, fcb);
+    this.processLoop();
 }
 
 /////////////////////////////
@@ -1353,6 +1348,9 @@ function LoggerFactory(appName, writer, ip) {
     const m_memoryBlockList = new BlockList();
     const m_writeBlockList = new BlockList();
 
+    //keep track of need to queue an emit
+    let m_emitPending = false;
+
     //The writer to emit data from the writeBlockList
     const m_emitter = new Emitter(writer);
 
@@ -1385,6 +1383,22 @@ function LoggerFactory(appName, writer, ip) {
 
         let m_macroInfo = Object.create(m_globalMacroInfo);
         m_macroInfo.MODULE_NAME = moduleName;
+
+        /**
+        * After logging a message see if we need to queue an emit action and, if so, get it ready
+        */
+        function checkAndQueueEmit() {
+            if (m_emitPending) {
+                return;
+            }
+            m_emitPending = true;
+
+            process.nextTick(function () {
+                m_memoryBlockList.processMsgsForWrite(m_writeLogLevel, m_writeBlockList, true);
+                m_emitter.emitBlockList(m_writeBlockList);
+                m_emitPending = false;
+            });
+        }
 
         /**
          * Update the logical time/requestId/callbackId/etc.
@@ -1422,6 +1436,7 @@ function LoggerFactory(appName, writer, ip) {
                     }
 
                     m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.FATAL, fmti, args);
+                    checkAndQueueEmit();
                 }
                 catch (ex) {
                     process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
@@ -1438,6 +1453,7 @@ function LoggerFactory(appName, writer, ip) {
                     }
 
                     m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.ERROR, fmti, args);
+                    checkAndQueueEmit();
                 }
                 catch (ex) {
                     process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
@@ -1454,6 +1470,7 @@ function LoggerFactory(appName, writer, ip) {
                     }
 
                     m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.WARN, fmti, args);
+                    checkAndQueueEmit();
                 }
                 catch (ex) {
                     process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
@@ -1470,6 +1487,7 @@ function LoggerFactory(appName, writer, ip) {
                     }
 
                     m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.INFO, fmti, args);
+                    checkAndQueueEmit();
                 }
                 catch (ex) {
                     process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
@@ -1486,6 +1504,7 @@ function LoggerFactory(appName, writer, ip) {
                     }
 
                     m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.DEBUG, fmti, args);
+                    checkAndQueueEmit();
                 }
                 catch (ex) {
                     process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
@@ -1502,34 +1521,13 @@ function LoggerFactory(appName, writer, ip) {
                     }
 
                     m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.TRACE, fmti, args);
+                    checkAndQueueEmit();
                 }
                 catch (ex) {
                     process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
                 }
             }
             : doMsgLog_NOP;
-
-        /**
-         * Process the current message set for writing 
-         */
-        this.processMsgsForWrite = function() {
-            m_memoryBlockList.processMsgsForWrite(m_writeLogLevel, m_writeBlockList, true);
-        }
-
-        /**
-         * Emit the messages in our queue
-         */
-        this.emit = function(optCompleteFunction) {
-            m_emitter.emitBlockList(m_writeBlockList, true, optCompleteFunction);
-        }
-
-        /**
-         * Process msgs and emit them immedately to a special location ...
-         */
-        this.processAndEmitImmediate = function (altWriter) {
-            //TODO probably want to set the alt writer as an option instead of argument here...
-            assert(false, 'Not implemented yet');
-        }
     }
 }
 
@@ -1556,6 +1554,8 @@ function createConsoleWriter() {
             if (sb.length > 2048) {
                 return true;
             }
+
+            return false;
         },
         drain: function (cb) {
             let wb = sb;

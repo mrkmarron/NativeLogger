@@ -13,10 +13,3 @@ logger.addFormat('fmt_g1', 'msg is ${0:s} value is ${1:n} at time #wall_time');
 //Log some data
 logger.debug('fmt_g1', 'ok', 5);
 
-////
-//Move data into the memory buffer
-logger.processMsgsForWrite();
-
-////
-//Write data to the console
-logger.emit();
