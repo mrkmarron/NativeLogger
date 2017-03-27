@@ -1,9 +1,4 @@
-let lgr = require('./msg_format');
-
-let cwriter = lgr.createConsoleWriter();
-let lgrFactory = lgr.createLoggerFactory('loggerTest', cwriter, '127.0.0.1');
-
-let logger = lgrFactory.createLogger('lgr1', lgr.LoggingLevels.DEBUG, lgr.LoggingLevels.ALL);
+let logger = require('./msg_format')('loggerTest', 'DEBUG', 'ALL');
 
 ////
 //Create various formats

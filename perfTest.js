@@ -1,4 +1,4 @@
-let lgr = require('./msg_format');
+let logger = require('./msg_format')('loggerTest', 'DEBUG', 'ALL');
 let pino = require('pino')();
 
 const iterCount = 100000;
@@ -25,13 +25,6 @@ console.error(`Pino: Iters = ${iterCount} -- Log time = ${plogend - plogstart}ms
 
 ///
 //nativelogger
-let cwriter = lgr.createConsoleWriter();
-let lgrFactory = lgr.createLoggerFactory('loggerTest', cwriter, '127.0.0.1');
-
-let logger = lgrFactory.createLogger('lgr1', lgr.LoggingLevels.DEBUG, lgr.LoggingLevels.ALL);
-
-////
-//Create various formats
 logger.addFormat('fmt_g1', 'msg is ${0:s} value is ${1:n} at time #wall_time');
 
 let nlogstart = new Date();

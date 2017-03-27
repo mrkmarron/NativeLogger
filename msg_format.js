@@ -895,6 +895,14 @@ function Emitter(writer) {
 }
 
 /**
+* Set the writer to a new output
+* @method
+*/
+Emitter.prototype.updateWriter = function (writer) {
+    this.writer = writer;
+}
+
+/**
  * Output a string as a quoted JavaScript string.
  * @method
  */
@@ -1252,10 +1260,8 @@ Emitter.prototype.emitMsg = function (currStackEntry) {
 /**
  * The main process loop for the emitter -- write a full message and check if drain is required + cb invoke.
  * @method
- * @param {bool} clearWhenDone true if we want to clear the blocks when we are done
- * @param {Function} fcb the (optional) final callback when the all the data is flushed
  */
-Emitter.prototype.processLoop = function (clearWhenDone) {
+Emitter.prototype.processLoop = function () {
     let flush = false;
     while (this.block !== null) {
         while (this.block !== null && !flush) {
@@ -1329,10 +1335,9 @@ function doMsgLog_NOP(level, fmt, ...args) { ; }
  * Constructor for the RootLogger
  * @constructor
  * @param {string} appName name of the root module (application)
- * @param {Object} writer the writer that we can eventually emit into
  * @param {string} ip the ip address of the host
  */
-function LoggerFactory(appName, writer, ip) {
+function LoggerFactory(appName, ip) {
     //Since this will be exposed to the user we want to protect the state from accidental 
     //modification. This state is common to all loggers and will be shared.
     const m_globalMacroInfo = {
@@ -1351,11 +1356,12 @@ function LoggerFactory(appName, writer, ip) {
     //keep track of need to queue an emit
     let m_emitPending = false;
 
-    //The writer to emit data from the writeBlockList
-    const m_emitter = new Emitter(writer);
+    //The writer to emit data from the writeBlockList -- default to console
+    const m_emitter = new Emitter(createStdoutWriter());
 
     /**
      * Create a logger for a given module
+     * @method
      * @param {string} moduleName name of the module this is defined for
      * @param {Object} memoryLevel the level to write into memory log
      * @param {Object} writeLevel the level to write into the stable storage writer
@@ -1375,13 +1381,15 @@ function LoggerFactory(appName, writer, ip) {
     * @param {Object} writeLevel the level to write into the stable storage writer
     */
     function Logger(moduleName, memoryLevel, writeLevel) {
+        const process = require('process');
+
         let m_memoryLogLevel = memoryLevel;
         let m_writeLogLevel = writeLevel;
 
         //all the formats we know about string -> MsgFormat Object
         const m_formatInfo = new Map();
 
-        let m_macroInfo = Object.create(m_globalMacroInfo);
+        const m_macroInfo = Object.create(m_globalMacroInfo);
         m_macroInfo.MODULE_NAME = moduleName;
 
         /**
@@ -1528,7 +1536,202 @@ function LoggerFactory(appName, writer, ip) {
                 }
             }
             : doMsgLog_NOP;
+
+        /**
+        * Synchronously emit the in memory log to the specified writer for failure notification
+        * @method
+        * @param {Object} writer the writer we use to emit the log info into
+        */
+        this.emitLogOnIssueNotify = function (writer) {
+            try {
+                const blockList = new BlockList();
+                m_memoryBlockList.processMsgsForWrite(LoggingLevels.ALL, blockList, false);
+
+                const emitter = new Emitter(writer);
+                emitter.processLoop();
+            }
+            catch (ex) {
+                process.stderr.write('Hard failure in emit on issue notify -- ' + ex.toString() + '\n');
+            }
+        }
+
+        /**
+        * Set the writer to a new output (only effective on root logger)
+        * @method
+        * @param {Object} writer the writer we use to emit the log info into
+        * @returns {bool} true if this is the root logger and output method was updated and false otherwise
+        */
+        this.updateEmitMethod = function (writer) {
+            try {
+                if (s_rootLogger === this) {
+                    return m_emitter.updateWriter(writer);
+                }
+                else {
+                    return false;
+                }
+            }
+            catch (ex) {
+                process.stderr.write('Hard failure in update emit method -- ' + ex.toString() + '\n');
+                return false;
+            }
+        }
+
+        /**
+        * Explicitly allow a specifc sub-logger to control output levels
+        * @method
+        * @param {string} subloggerName the name of the sub-logger to enable
+        * @returns {bool} true if this is the root logger and sub-logger was updated and false otherwise
+        */
+        this.enableSubLoggerLevels = function (subloggerName) {
+            try {
+                if (s_rootLogger === this) {
+                    s_enabledSubLoggerNames.add(subloggerName);
+                    return true;
+                }
+                else {
+                    return false;
+                }
+            }
+            catch (ex) {
+                process.stderr.write('Hard failure in update sublogger state -- ' + ex.toString() + '\n');
+                return false;
+            }
+        }
+
+        /**
+        * Explicitly suppress output from a specifc sub-logger
+        * @method
+        * @param {string} subloggerName the name of the sub-logger to enable
+        * @returns {bool} true if this is the root logger and sub-logger was updated and false otherwise
+        */
+        this.disableSublogger = function (subloggerName) {
+            try {
+                if (s_rootLogger === this) {
+                    s_disabledSubLoggerNames.add(subloggerName);
+                    return true;
+                }
+                else {
+                    return false;
+                }
+            }
+            catch (ex) {
+                process.stderr.write('Hard failure in update sublogger state -- ' + ex.toString() + '\n');
+                return false;
+            }
+        }
     }
+}
+
+/////////////////////////////
+//Code for creating and managing the logging system 
+
+/**
+ * Global variables for the logger factor and root logger -- lazily instantiated
+ */
+let s_loggerFactory = null;
+let s_rootLogger = null;
+
+/**
+ * Set of module names that are enabled for sub-logging (or expliscitly suppressed)
+ */
+const s_enabledSubLoggerNames = new Set();
+const s_disabledSubLoggerNames = new Set();
+
+/**
+ * Map of the loggers created for various module names
+ */
+const s_loggerMap = new Map();
+
+/**
+ * Logger constructor function.
+ * @exports
+ * @function
+ * @param {string} name of the logger object to construct (calls with the same name will return an aliased logger object)
+ * @param {string} memoryLevel is the level to log into the high performance rung buffer
+ * @param {string} writeLevel is the level to log out to to stable storage
+ */
+module.exports = function (name, memoryLevel, writeLevel) {
+    if (memoryLevel.enum < writeLevel.enum) {
+        //have to at least put it in ring buffer if we want to output it
+        memoryLevel = writeLevel;
+    }
+
+    const memlevelflag = LoggingLevels[memoryLevel] || LoggingLevels.WARN;
+    const writelevelflag = LoggingLevels[memoryLevel] || LoggingLevels.ERROR;
+
+    //Lazy instantiate the logger factory
+    if (s_loggerFactory === null) {
+        s_loggerFactory = new LoggerFactory(require.main.filename, require('os').hostname());
+    }
+
+    //Get the filename of the caller
+    const lfilename = extractUserSourceFile();
+
+    let logger = s_loggerMap.get(name);
+    if (!logger) {
+        if (require.main.filename !== lfilename) {
+            if (!s_enabledSubLoggerNames.has(name)) {
+                memlevelflag = s_disabledSubLoggerNames.has(name) ? LoggingLevels.OFF : LoggingLevels.WARN;
+                writelevelflag = s_disabledSubLoggerNames.has(name) ? LoggingLevels.OFF : LoggingLevels.WARN;
+            }
+        }
+
+        logger = s_loggerFactory.createLogger(name, memlevelflag, writelevelflag);
+        if(require.main.filename === lfilename) {
+            s_rootLogger == logger;
+        }
+
+        s_loggerMap.set(name, logger);
+    }
+
+    return logger;
+}
+
+//helper is absolute path copied from path -- avoid neededing to require it
+function directIsAbsoluteW32(pth) {
+  const len = pth.length;
+  if (len === 0)
+    return false;
+
+  var code = pth.charCodeAt(0);
+  if (code === 47/*/*/ || code === 92/*\*/) {
+    return true;
+  } else if ((code >= 65/*A*/ && code <= 90/*Z*/) ||
+    (code >= 97/*a*/ && code <= 122/*z*/)) {
+    // Possible device root
+
+    if (len > 2 && pth.charCodeAt(1) === 58/*:*/) {
+      code = pth.charCodeAt(2);
+      if (code === 47/*/*/ || code === 92/*\*/)
+        return true;
+    }
+  }
+  return false;
+}
+
+function directIsAbsolutePosix(pth) {
+  return pth.length > 0 && pth.charCodeAt(0) === 47/*/*/;
+}
+
+var directIsAbsolute = (process.platform === 'win32') ?
+  directIsAbsoluteW32 :
+  directIsAbsolutePosix;
+
+/*
+* Get first user sframe above the current call end extract the source file.
+*/
+function extractUserSourceFile() {
+  //Create an array of the file/lines for user space code in the call stack
+  return new Error()
+    .stack
+    .split('\n')
+    .slice(1)
+    .map(function(frame) {
+      return frame.substring(frame.indexOf('(') + 1, frame.lastIndexOf('.js:') + 3);
+    })
+    .find(function(frame) {
+      return directIsAbsolute(frame) && frame.search('msg_format.js') == -1; //TODO: temp workaround while external module
+    });
 }
 
 /////////////////////////////
@@ -1537,8 +1740,8 @@ function LoggerFactory(appName, writer, ip) {
 /**
  * Create a basic console writer 
  */
-function createConsoleWriter() {
-    let process = require('process');
+function createStdoutWriter() {
+    const process = require('process');
     let sb = '';
     return {
         emitChar: function (c) {
@@ -1564,16 +1767,3 @@ function createConsoleWriter() {
         }
     }
 }
-
-/////////////////////////////
-//Exports
-
-//Export the logging and systemlogging level enums
-exports.LoggingLevels = LoggingLevels;
-exports.SystemInfoLevels = SystemInfoLevels;
-
-//Export a function for creating an emitter
-exports.createLoggerFactory = function (appName, writer, ip) { return new LoggerFactory(appName, writer, ip) };
-
-//Create a console writer
-exports.createConsoleWriter = createConsoleWriter;
