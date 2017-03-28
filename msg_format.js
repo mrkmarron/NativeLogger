@@ -1258,7 +1258,7 @@ Emitter.prototype.emitMsg = function (currStackEntry) {
 }
 
 /**
- * The main process loop for the emitter -- write a full message and check if drain is required + cb invoke.
+ * The main process loop for the emitter -- write a full message
  * @method
  */
 Emitter.prototype.processLoop = function () {
@@ -1774,10 +1774,10 @@ function createStdoutWriter() {
 
             return false;
         },
-        drain: function (cb) {
+        drain: function () {
             let wb = sb;
             sb = '';
-            process.stdout.write(wb, cb);
+            process.stdout.write(wb);
         }
     }
 }
