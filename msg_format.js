@@ -1433,6 +1433,11 @@ function LoggerFactory(appName, ip) {
         }
 
         /**
+         * TODO: add prefix (or postfix) formatters which will be inserted in all writes.
+         * Support macro only as well as general options -- macro only are nice since uses don't need to pass other args
+         */
+
+        /**
          * Log a messages at various levels.
          */
         this.fatal = isLevelEnabledForLogging(LoggingLevels.FATAL, memoryLevel)
@@ -1537,6 +1542,15 @@ function LoggerFactory(appName, ip) {
             }
             : doMsgLog_NOP;
 
+
+        /**
+         * TODO: add conditional versions of these (e.g. traceOn(pred, fmt, args))
+         */
+
+        /**
+         * TODO: add blocking verions of these (write immediately or do a DEBUG vs RELEASE macro thing?)
+         */
+
         /**
         * Synchronously emit the in memory log to the specified writer for failure notification
         * @method
@@ -1582,7 +1596,7 @@ function LoggerFactory(appName, ip) {
         * @param {string} subloggerName the name of the sub-logger to enable
         * @returns {bool} true if this is the root logger and sub-logger was updated and false otherwise
         */
-        this.enableSubLoggerLevels = function (subloggerName) {
+        this.enableSubLogger = function (subloggerName) {
             try {
                 if (s_rootLogger === this) {
                     s_enabledSubLoggerNames.add(subloggerName);
@@ -1656,8 +1670,8 @@ module.exports = function (name, memoryLevel, writeLevel) {
         memoryLevel = writeLevel;
     }
 
-    const memlevelflag = LoggingLevels[memoryLevel] || LoggingLevels.WARN;
-    const writelevelflag = LoggingLevels[memoryLevel] || LoggingLevels.ERROR;
+    let memlevelflag = LoggingLevels[memoryLevel] || LoggingLevels.WARN;
+    let writelevelflag = LoggingLevels[memoryLevel] || LoggingLevels.ERROR;
 
     //Lazy instantiate the logger factory
     if (s_loggerFactory === null) {
@@ -1678,7 +1692,7 @@ module.exports = function (name, memoryLevel, writeLevel) {
 
         logger = s_loggerFactory.createLogger(name, memlevelflag, writelevelflag);
         if(require.main.filename === lfilename) {
-            s_rootLogger == logger;
+            s_rootLogger = logger;
         }
 
         s_loggerMap.set(name, logger);
