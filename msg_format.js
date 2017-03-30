@@ -1263,7 +1263,7 @@ Emitter.prototype.emitMsg = function (currStackEntry) {
  */
 Emitter.prototype.processLoop = function () {
     let flush = false;
-    while (this.block !== null) {
+    while (this.block !== null && this.block.count !== 0) {
         while (this.block !== null && !flush) {
             const tag = this.block.tags[this.pos];
 
@@ -1671,7 +1671,7 @@ module.exports = function (name, memoryLevel, writeLevel) {
     }
 
     let memlevelflag = LoggingLevels[memoryLevel] || LoggingLevels.WARN;
-    let writelevelflag = LoggingLevels[memoryLevel] || LoggingLevels.ERROR;
+    let writelevelflag = LoggingLevels[writeLevel] || LoggingLevels.ERROR;
 
     //Lazy instantiate the logger factory
     if (s_loggerFactory === null) {
