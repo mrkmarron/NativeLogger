@@ -1670,8 +1670,8 @@ module.exports = function (name, memoryLevel, writeLevel) {
         memoryLevel = writeLevel;
     }
 
-    let memlevelflag = LoggingLevels[memoryLevel] || LoggingLevels.WARN;
-    let writelevelflag = LoggingLevels[writeLevel] || LoggingLevels.ERROR;
+    let memlevelflag = LoggingLevels[memoryLevel] || LoggingLevels.INFO;
+    let writelevelflag = LoggingLevels[writeLevel] || LoggingLevels.WARN;
 
     //Lazy instantiate the logger factory
     if (s_loggerFactory === null) {
@@ -1686,7 +1686,7 @@ module.exports = function (name, memoryLevel, writeLevel) {
         if (require.main.filename !== lfilename) {
             if (!s_enabledSubLoggerNames.has(name)) {
                 memlevelflag = s_disabledSubLoggerNames.has(name) ? LoggingLevels.OFF : LoggingLevels.WARN;
-                writelevelflag = s_disabledSubLoggerNames.has(name) ? LoggingLevels.OFF : LoggingLevels.WARN;
+                writelevelflag = s_disabledSubLoggerNames.has(name) ? LoggingLevels.OFF : LoggingLevels.ERROR;
             }
         }
 
