@@ -367,7 +367,15 @@ function extractArgumentFormatSpecifier(fmtString, vpos) {
  * @returns {Object} our MsgFormat object
  */
 function createMsgFormat(fmtName, fmtString, maxArgPos, fmtEntryArray, areAllSingleSlotFormatters) {
-    return { formatName: fmtName, formatString: fmtString, maxArgPosition: maxArgPos, formatterArray: fmtEntryArray, allSingleSlotFormatters: areAllSingleSlotFormatters };
+    return {
+        formatName: fmtName,
+        formatString: fmtString,
+        maxArgPosition: maxArgPos,
+        formatterArray: fmtEntryArray,
+        initialFormatStringSegment: 'msg is ',
+        tailingFormatStringSegmentArray: [],
+        allSingleSlotFormatters: areAllSingleSlotFormatters
+    };
 }
 
 /**
@@ -823,65 +831,6 @@ BlockList.prototype.processMsgsForWrite = function (retainLevel, pendingWriteBlo
 //Code for pure JS write to storage
 
 /**
- * When we are emitting we can be in multiple modes (formatting, objects, arrays, etc.) so we want tags (used below to indicate)
- */
-const EmitMode_Clear = 0;
-const EmitMode_MsgFormat = 1;
-const EmitMode_ObjectLevel = 2;
-const EmitMode_ArrayLevel = 3;
-
-/**
- * Constructor for a format stack state entry
- * @constructor
- * @param {number} emitState 
- * @param {*} fmt the (optional) formatEntry if emitState is EmitMode_MsgFormat
- */
-function FormatStateEntry(emitState, fmt) {
-    this.mode = emitState;
-    this.commaInsert = fmt ? false : true;
-    if (fmt !== undefined) {
-        this.formatEnum = fmt.enum;
-        this.formatString = fmt.formatString;
-        this.formatArray = fmt.formatterArray;
-        this.formatterIndex = 0;
-    }
-}
-
-/**
- * Check if we need to insert a comma (and update the comma insert state)
- * @method
- * @returns {bool}
- */
-FormatStateEntry.prototype.checkAndUpdateNeedsComma = function () {
-    if (this.commaInsert) {
-        return true;
-    }
-    else {
-        this.commaInsert = true;
-        return false;
-    }
-};
-
-/**
- * Get the start position for a span of literal text in a format string to emit.
- * @method
- * @returns {number}
- */
-FormatStateEntry.prototype.getFormatRangeStart = function () {
-    return this.formatArray[this.formatterIndex].formatEnd;
-};
-
-/**
- * Get the end position for a span of literal text in a format string to emit.
- * @method
- * @returns {number}
- */
-FormatStateEntry.prototype.getFormatRangeEnd = function () {
-    return (this.formatterIndex + 1 < this.formatArray.length) ? this.formatArray[this.formatterIndex + 1].formatStart : this.formatString.length;
-};
-
-
-/**
  * Constructor for a blockList emitter
  * @constructor
  * @param {Object} writer for the data
@@ -891,7 +840,29 @@ function Emitter(writer) {
     this.block = null;
     this.pos = 0;
     this.writer = writer;
-    this.stateStack = [];
+}
+
+/**
+ * Check if there is more data to emit.
+ * @method
+ * @returns {bool} true if there is more data to emit
+ */
+Emitter.prototype.moreToEmit = function () {
+    return (this.block !== null);
+}
+
+/**
+ * Advance the position in the blockList entries
+ * @method
+ */
+Emitter.prototype.advancePosition = function () {
+    if (this.pos + 1 !== this.block.count) {
+        this.pos++;
+    }
+    else {
+        this.block = this.block.next;
+        this.pos = 0;
+    }
 }
 
 /**
@@ -910,22 +881,6 @@ Emitter.prototype.emitJsString = function (str) {
     this.writer.emitChar('"');
     this.writer.emitFullString(str);
     this.writer.emitChar('"');
-}
-
-/**
- * Output the start of a log message.
- * @method
- */
-Emitter.prototype.emitEntryStart = function () {
-    this.writer.emitChar('>');
-}
-
-/**
- * Output the end of a log message.
- * @method
- */
-Emitter.prototype.emitEntryEnd = function () {
-    this.writer.emitChar('\n');
 }
 
 /**
@@ -983,9 +938,11 @@ Emitter.prototype.emitSpecialVar = function (tag) {
  */
 Emitter.prototype.appendBlockList = function (blockList) {
     if (this.blockList === null) {
-        this.blockList = blockList;
-        this.block = blockList.head;
-        this.pos = 0;
+        if (blockList.head.count !== 0) {
+            this.blockList = blockList;
+            this.block = blockList.head;
+            this.pos = 0;
+        }
     }
     else {
         assert(false, 'Need to add append code here!!!');
@@ -993,268 +950,180 @@ Emitter.prototype.appendBlockList = function (blockList) {
 }
 
 /**
- * Push top a formatter state onto the processing stack
- * @method
- * @param {number} mode
- * @param {string} leadToken the (optional) token to emit
- * @param {Object} fmt the (optional) format entry
- */
-Emitter.prototype.pushFormatState = function (mode, leadToken, fmt) {
-    this.stateStack.push(new FormatStateEntry(EmitMode_MsgFormat, fmt));
-    if (leadToken !== undefined) {
-        this.writer.emitChar(leadToken);
-    }
-}
-
-/**
- * Peek at the top emitter stack state
- * @method
- * @returns {Object} the top emit stack state
- */
-Emitter.prototype.peekEmitState = function () {
-    return this.stateStack[this.stateStack.length - 1];
-}
-
-/**
- * Pop and emitter state and write any needed closing } or ] and fill in any string format text
- * @method
- */
-Emitter.prototype.popEmitState = function () {
-    const pentry = this.stateStack.pop();
-    if (pentry.mode == EmitMode_MsgFormat) {
-        this.emitEntryEnd();
-    }
-    else {
-        this.writer.emitChar(pentry.mode === EmitMode_ObjectLevel ? '}' : ']');
-
-        const sentry = this.peekEmitState();
-        if (sentry.mode === EmitMode_MsgFormat) {
-            this.emitFormatMsgSpan(sentry);
-        }
-    }
-}
-
-/**
  * Write the msg format literal text between two format specifiers (or string end).
  * @method
- * @param {Object} currStackEntry the current state stack entry
+ * @param {Array} formatArray the array of format specifiers
+ * @param {number} formatIndex the index we are currently formatting
+ * @param {string} formatString the format specifier string
  */
-Emitter.prototype.emitFormatMsgSpan = function (currStackEntry) {
-    const start = currStackEntry.getFormatRangeStart();
-    const end = currStackEntry.getFormatRangeEnd();
+Emitter.prototype.emitFormatMsgSpan = function (formatArray, formatIndex, formatString) {
+    const start = formatArray[formatIndex].formatEnd;
+    const end = (formatIndex + 1 < formatArray.length) ? formatArray[formatIndex + 1].formatStart : formatString.length;
 
-    this.writer.emitStringSpan(currStackEntry.formatString, start, end);
-    currStackEntry.formatterIndex++;
+    this.writer.emitStringSpan(formatString, start, end);
 }
 
 /**
- * Emit a value when we are in format entry mode.
+ * Emit a single formatted message.
  * @method
- * @param {Object} currStackEntry the current state stack entry
- * @returns {bool} true if we finished emitting a format message
+ * @param {Object} fmt the format entry we want to output
  */
-Emitter.prototype.emitFormatEntry = function (currStackEntry) {
-    assert(currStackEntry.mode === EmitMode_MsgFormat, "Shound not be here then.");
+Emitter.prototype.emitFormatEntry = function (fmt) {
+    const formatArray = fmt.formatterArray;
+    const formatString = fmt.formatString;
+    let formatIndex = 0;
 
-    while (this.pos < this.block.count) {
+    while (this.block.tags[this.pos] !== LogEntryTags_MsgEndSentinal) {
         const tag = this.block.tags[this.pos];
-        if (tag === LogEntryTags_MsgEndSentinal) {
-            this.popEmitState();
-
-            //don't advance pos here -- it will get taken care of in top loop
-            return true;
-        }
-
-        if (tag === LogEntryTags_LParen) {
-            this.pushFormatState(EmitMode_ObjectLevel, '{', undefined);
-
-            this.pos++;
-            this.emitObjectEntry(this.peekEmitState());
-        }
-        else if (tag === LogEntryTags_LBrack) {
-            this.pushFormatState(EmitMode_ArrayLevel, '[', undefined);
-
-            this.pos++;
-            this.emitArrayEntry(this.peekEmitState());
-        }
-        else if (tag === LogEntryTags_JsBadFormatVar || tag === LogEntryTags_OpaqueValue) {
-            this.emitSpecialVar(tag);
-            this.pos++
-        }
-        else if (tag === LogEntryTags_MsgLevel) {
+        
+        if (tag === LogEntryTags_MsgLevel) {
             const data = this.block.data[this.pos];
-            this.emitEntryStart();
+            this.writer.emitMsgStart();
 
             this.writer.emitFullString('level: ');
             this.writer.emitFullString(data.label);
 
             this.writer.emitFullString(', msg: ')
-            if (currStackEntry.formatArray.length === 0) {
-                this.writer.emitFullString(currStackEntry.formatString);
-            }
-            else {
-                const fpos = currStackEntry.formatArray[0].formatStart;
-                this.writer.emitStringSpan(currStackEntry.formatString, 0, fpos);
-            }
+            this.writer.emitFullString(fmt.initialFormatStringSegment);
 
-            this.pos++;
+            this.advancePosition();
         }
         else {
-            const data = this.block.data[this.pos];
-            const formatEntry = currStackEntry.formatArray[currStackEntry.formatterIndex];
-            const formatSpec = formatEntry.format;
-
-            if (formatSpec.kind === FormatStringEntryKind_Literal) {
-                this.writer.emitChar(formatEntry === FormatStringEntrySingletons.LITERAL_HASH ? '#' : '$');
+            if (tag === LogEntryTags_LParen) {
+                this.emitObjectEntry();
+                //position is advanced in call
             }
-            else if (formatSpec.kind === FormatStringEntryKind_Expando) {
-                if (formatSpec.enum <= FormatStringEntrySingleton_LastMacroInfoExpandoEnum) {
-                    this.writer.emitFullString(data.toString());
+            else if (tag === LogEntryTags_LBrack) {
+                this.emitArrayEntry();
+                //position is advanced in call
+            }
+            else {
+                const data = this.block.data[this.pos];
+                const formatEntry = formatArray[formatIndex];
+                const formatSpec = formatEntry.format;
+
+                if (formatSpec.kind === FormatStringEntryKind_Literal) {
+                    this.writer.emitChar(formatEntry === FormatStringEntrySingletons.LITERAL_HASH ? '#' : '$');
                 }
-                else {
-                    if (formatSpec === FormatStringEntrySingletons.MSG_NAME) {
+                else if (formatSpec.kind === FormatStringEntryKind_Expando) {
+                    if (formatSpec.enum <= FormatStringEntrySingleton_LastMacroInfoExpandoEnum) {
                         this.writer.emitFullString(data.toString());
                     }
                     else {
-                        this.writer.emitFullString(new Date(data).toISOString());
+                        if (formatSpec === FormatStringEntrySingletons.MSG_NAME) {
+                            this.writer.emitFullString(data.toString());
+                        }
+                        else {
+                            this.writer.emitFullString(new Date(data).toISOString());
+                        }
                     }
                 }
-            }
-            else {
-                this.emitSimpleVar(data);
+                else {
+                    if (tag === LogEntryTags_JsVarValue) {
+                        this.emitSimpleVar(data);
+                    }
+                    else {
+                        this.emitSpecialVar(tag);
+                    }
+
+                }
+
+                this.advancePosition();
             }
 
-            this.emitFormatMsgSpan(currStackEntry);
-            this.pos++;
+            this.emitFormatMsgSpan(formatArray, formatIndex, formatString);
+            formatIndex++;
         }
     }
 
-    return false;
+    this.writer.emitMsgEnd();
+    this.advancePosition();
 }
 
 /**
- * Emit a value when we are in object entry mode.
+ * Emit an object entry
  * @method
- * @param {Object} currStackEntry the current state stack entry
  */
-Emitter.prototype.emitObjectEntry = function (currStackEntry) {
-    assert(currStackEntry.mode === EmitMode_ObjectLevel, "Shound not be here then.");
+Emitter.prototype.emitObjectEntry = function () {
+    this.writer.emitChar('{');
+    this.advancePosition();
 
-    while (this.pos < this.block.count) {
-        const tag = this.block.tags[this.pos];
-        const data = this.block.data[this.pos];
+    let skipComma = true;
+    while (this.block.tags[this.pos] !== LogEntryTags_RParen) {
+        assert(this.block.tags[this.pos] === LogEntryTags_PropertyRecord, 'In an object entry but no property name???');
 
-        if (tag === LogEntryTags_RParen) {
-            this.popEmitState();
-
-            //advance pos here -- it is needed or we move to this.pos === this.block.count and top level loop will sort it out right
-            this.cpos++;
-            return;
-        }
-
-        if (tag === LogEntryTags_PropertyRecord) {
-            if (currStackEntry.checkAndUpdateNeedsComma()) {
-                this.writer.emitFullString(', ');
-            }
-
-            this.emitJsString(data);
-            this.writer.emitFullString(': ');
-
-            this.pos++;
-        }
-        else if (tag === LogEntryTags_LParen) {
-            this.pushFormatState(EmitMode_ObjectLevel, '{', undefined);
-
-            this.pos++;
-            this.emitObjectEntry(this.peekEmitState());
-        }
-        else if (tag === LogEntryTags_LBrack) {
-            this.pushArrayState(emitter);
-
-            this.pos++;
-            this.emitArrayEntry(this.peekEmitState());
-        }
-        else if (tag === LogEntryTags_JsVarValue) {
-            this.emitSimpleVar(data);
-            this.pos++;
+        if (skipComma) {
+            skipComma = false;
         }
         else {
-            this.emitSpecialVar(tag);
-            this.pos++;
+            this.writer.emitFullString(', ');
+        }
+        this.emitJsString(this.block.data[this.pos]);
+        this.writer.emitFullString(': ');
+
+        this.advancePosition();
+
+        const tag = this.block.tags[this.pos];
+        if (tag === LogEntryTags_LParen) {
+            this.emitObjectEntry();
+        }
+        else if (tag === LogEntryTags_LBrack) {
+            this.emitArrayEntry();
+        }
+        else {
+            if (tag === LogEntryTags_JsVarValue) {
+                this.emitSimpleVar(this.block.data[this.pos]);
+            }
+            else {
+                this.emitSpecialVar(tag);
+            }
+
+            this.advancePosition();
         }
     }
+
+    this.writer.emitChar('}');
+    this.advancePosition();
 }
 
 /**
- * Emit a value when we are in array entry mode.
+ * Emit an array entry
  * @method
- * @param {Object} currStackEntry the current state stack entry
- * @param {number} tag the value tag from the log
- * @param {*} data the value data from the log
  */
-Emitter.prototype.emitArrayEntry = function (currStackEntry, tag, data) {
-    assert(currStackEntry.mode === EmitMode_ObjectLevel, "Shound not be here then.");
+Emitter.prototype.emitArrayEntry = function () {
+    this.writer.emitChar('[');
+    this.advancePosition();
 
-    while (this.pos < this.block.count) {
-        const tag = this.block.tags[this.pos];
-        const data = this.block.data[this.pos];
-
-        if (tag === LogEntryTags_RBrack) {
-            this.popEmitState();
-
-            //advance pos here -- it is needed or we move to this.pos === this.block.count and top level loop will sort it out right
-            this.cpos++;
-            return;
+    let skipComma = true;
+    while (this.block.tags[this.pos] !== LogEntryTags_RParen) {
+        if (skipComma) {
+            skipComma = false;
         }
-
-        if (currStackEntry.checkAndUpdateNeedsComma()) {
+        else {
             this.writer.emitFullString(', ');
         }
 
+        const tag = this.block.tags[this.pos];
         if (tag === LogEntryTags_LParen) {
-            this.pushFormatState(EmitMode_ObjectLevel, '{', undefined);
-
-            this.pos++;
-            this.emitObjectEntry(this.peekEmitState());
+            this.emitObjectEntry();
         }
         else if (tag === LogEntryTags_LBrack) {
-            this.pushFormatState(EmitMode_ArrayLevel, '[', undefined);
-
-            this.pos++;
-            this.emitArrayEntry(this.peekEmitState());
-        }
-        else if (tag === LogEntryTags_JsVarValue) {
-            this.emitSimpleVar(data);
-            this.cpos++;
+            this.emitArrayEntry();
         }
         else {
-            this.emitSpecialVar(tag);
-            this.cpos++;
-        }
-    }
-}
+            if (tag === LogEntryTags_JsVarValue) {
+                this.emitSimpleVar(this.block.data[this.pos]);
+            }
+            else {
+                this.emitSpecialVar(tag);
+            }
 
-/**
- * Emit a single message -- return true if more to emit false otherwise
- * @method
- * @param {Object} currStackEntry the current state stack entry
- * @returns {bool} true if we finished emitting a format message
- */
-Emitter.prototype.emitMsg = function (currStackEntry) {
-    const state = currStackEntry.mode;
+            this.advancePosition();
+        }
+    }
 
-    if (state === EmitMode_MsgFormat) {
-        return this.emitFormatEntry(currStackEntry);
-    }
-    else {
-        if (state === EmitMode_ObjectLevel) {
-            this.emitObjectEntry(currStackEntry);
-        }
-        else {
-            this.emitArrayEntry(currStackEntry);
-        }
-        return false;
-    }
+    this.writer.emitChar(']');
+    this.advancePosition();
 }
 
 /**
@@ -1263,46 +1132,28 @@ Emitter.prototype.emitMsg = function (currStackEntry) {
  */
 Emitter.prototype.processLoop = function () {
     let flush = false;
-    while (this.block !== null && this.block.count !== 0) {
-        while (this.block !== null && !flush) {
-            const tag = this.block.tags[this.pos];
+    while (this.moreToEmit()) {
+        assert(this.block.tags[this.pos] === LogEntryTags_MsgFormat, 'We should be emitting complete messages each step!!!');
 
-            if (tag === LogEntryTags_MsgFormat) {
-                this.pushFormatState(EmitMode_MsgFormat, undefined, this.block.data[this.pos]);
-            }
-            else {
-                const currStackEntry = this.peekEmitState();
-                const msgCompleted = this.emitMsg(currStackEntry);
+        const fmt = this.block.data[this.pos];
+        this.advancePosition();
 
-                if (msgCompleted) {
-                    flush = this.writer.needsToDrain();
-                }
-            }
+        this.emitFormatEntry(fmt);
 
-            //Advance the position of the emitter
-            if (this.pos < this.block.count - 1) {
-                this.pos++;
-            }
-            else {
-                this.block = this.block.next;
-                this.pos = 0;
-            }
-        }
+        flush = this.writer.needsToDrain();
 
         //if we need to flush then call the writer drain with a callback to us
-        if (flush || this.block === null) {
+        if (flush) {
             flush = false;
             this.writer.drain();
-
-            //We don't have any more to write out
-            if (this.block === null) {
-                this.blockList.clear();
-                this.blockList = null;
-                this.block = null;
-                this.pos = 0;
-            }
         }
     }
+
+    this.writer.drain();
+    this.blockList.clear();
+    this.blockList = null;
+    this.block = null;
+    this.pos = 0;
 }
 
 /**
@@ -1691,7 +1542,7 @@ module.exports = function (name, memoryLevel, writeLevel) {
         }
 
         logger = s_loggerFactory.createLogger(name, memlevelflag, writelevelflag);
-        if(require.main.filename === lfilename) {
+        if (require.main.filename === lfilename) {
             s_rootLogger = logger;
         }
 
@@ -1703,49 +1554,49 @@ module.exports = function (name, memoryLevel, writeLevel) {
 
 //helper is absolute path copied from path -- avoid neededing to require it
 function directIsAbsoluteW32(pth) {
-  const len = pth.length;
-  if (len === 0)
-    return false;
+    const len = pth.length;
+    if (len === 0)
+        return false;
 
-  var code = pth.charCodeAt(0);
-  if (code === 47/*/*/ || code === 92/*\*/) {
-    return true;
-  } else if ((code >= 65/*A*/ && code <= 90/*Z*/) ||
-    (code >= 97/*a*/ && code <= 122/*z*/)) {
-    // Possible device root
-
-    if (len > 2 && pth.charCodeAt(1) === 58/*:*/) {
-      code = pth.charCodeAt(2);
-      if (code === 47/*/*/ || code === 92/*\*/)
+    var code = pth.charCodeAt(0);
+    if (code === 47/*/*/ || code === 92/*\*/) {
         return true;
+    } else if ((code >= 65/*A*/ && code <= 90/*Z*/) ||
+        (code >= 97/*a*/ && code <= 122/*z*/)) {
+        // Possible device root
+
+        if (len > 2 && pth.charCodeAt(1) === 58/*:*/) {
+            code = pth.charCodeAt(2);
+            if (code === 47/*/*/ || code === 92/*\*/)
+                return true;
+        }
     }
-  }
-  return false;
+    return false;
 }
 
 function directIsAbsolutePosix(pth) {
-  return pth.length > 0 && pth.charCodeAt(0) === 47/*/*/;
+    return pth.length > 0 && pth.charCodeAt(0) === 47/*/*/;
 }
 
 var directIsAbsolute = (process.platform === 'win32') ?
-  directIsAbsoluteW32 :
-  directIsAbsolutePosix;
+    directIsAbsoluteW32 :
+    directIsAbsolutePosix;
 
 /*
 * Get first user sframe above the current call end extract the source file.
 */
 function extractUserSourceFile() {
-  //Create an array of the file/lines for user space code in the call stack
-  return new Error()
-    .stack
-    .split('\n')
-    .slice(1)
-    .map(function(frame) {
-      return frame.substring(frame.indexOf('(') + 1, frame.lastIndexOf('.js:') + 3);
-    })
-    .find(function(frame) {
-      return directIsAbsolute(frame) && frame.search('msg_format.js') == -1; //TODO: temp workaround while external module
-    });
+    //Create an array of the file/lines for user space code in the call stack
+    return new Error()
+        .stack
+        .split('\n')
+        .slice(1)
+        .map(function (frame) {
+            return frame.substring(frame.indexOf('(') + 1, frame.lastIndexOf('.js:') + 3);
+        })
+        .find(function (frame) {
+            return directIsAbsolute(frame) && frame.search('msg_format.js') == -1; //TODO: temp workaround while external module
+        });
 }
 
 /////////////////////////////
@@ -1766,6 +1617,12 @@ function createStdoutWriter() {
         },
         emitStringSpan: function (str, start, end) {
             sb = sb + str.substr(start, end - start);
+        },
+        emitMsgStart: function () {
+            sb = sb + '> ';
+        },
+        emitMsgEnd: function () {
+            sb = sb + '\n';
         },
         needsToDrain: function () {
             if (sb.length > 2048) {
