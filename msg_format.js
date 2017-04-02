@@ -363,17 +363,19 @@ function extractArgumentFormatSpecifier(fmtString, vpos) {
  * @param {string} fmtString the raw format string
  * @param {number} maxArgPos the largest arg used in the format
  * @param {Array} fmtEntryArray the array of MsgFormatEntry objects
+ * @param {string} initialFormatSegment the string that we want to emit at the start of the format 
+ * @param {Array} tailingFormatSegmentArray the strings that we want to emit in after each format specifier
  * @param {bool} areAllSingleSlotFormatters true of all the formatters use only a single slot
  * @returns {Object} our MsgFormat object
  */
-function createMsgFormat(fmtName, fmtString, maxArgPos, fmtEntryArray, areAllSingleSlotFormatters) {
+function createMsgFormat(fmtName, fmtString, maxArgPos, fmtEntryArray, initialFormatSegment, tailingFormatSegmentArray, areAllSingleSlotFormatters) {
     return {
         formatName: fmtName,
         formatString: fmtString,
         maxArgPosition: maxArgPos,
         formatterArray: fmtEntryArray,
-        initialFormatStringSegment: 'msg is ',
-        tailingFormatStringSegmentArray: [],
+        initialFormatStringSegment: initialFormatSegment,
+        tailingFormatStringSegmentArray: tailingFormatSegmentArray,
         allSingleSlotFormatters: areAllSingleSlotFormatters
     };
 }
@@ -405,7 +407,7 @@ function extractMsgFormat(fmtName, fmtInfo) {
         fmtString = expandToJsonFormatter(fmtInfo);
     }
 
-    let newlineRegex = /(\n|\r)/
+    const newlineRegex = /(\n|\r)/
     if (newlineRegex.test(fmtString)) {
         throw new Error('Format cannot contain newlines.');
     }
@@ -429,11 +431,20 @@ function extractMsgFormat(fmtName, fmtInfo) {
         }
     }
 
-    let allBasicFormatters = fArray.every(function (value) {
+    const allBasicFormatters = fArray.every(function (value) {
         return value.isSingleSlot;
     });
 
-    return createMsgFormat(fmtName, fmtString, maxArgPos, fArray, allBasicFormatters);
+    const initialFormatSegment = (fArray.length !== 0) ? fmtString.substr(0, fArray[0].formatStart) : fmtString;
+    let tailingFormatSegmentArray = [];
+    for (let i = 0; i < fArray.length; ++i) {
+        const start = fArray[i].formatEnd;
+        const end = (i + 1 < fArray.length) ? fArray[i + 1].formatStart : fmtString.length;
+
+        tailingFormatSegmentArray.push(fmtString.substr(start, end - start));
+    }
+
+    return createMsgFormat(fmtName, fmtString, maxArgPos, fArray, initialFormatSegment, tailingFormatSegmentArray, allBasicFormatters);
 }
 
 /////////////////////////////
@@ -950,35 +961,21 @@ Emitter.prototype.appendBlockList = function (blockList) {
 }
 
 /**
- * Write the msg format literal text between two format specifiers (or string end).
- * @method
- * @param {Array} formatArray the array of format specifiers
- * @param {number} formatIndex the index we are currently formatting
- * @param {string} formatString the format specifier string
- */
-Emitter.prototype.emitFormatMsgSpan = function (formatArray, formatIndex, formatString) {
-    const start = formatArray[formatIndex].formatEnd;
-    const end = (formatIndex + 1 < formatArray.length) ? formatArray[formatIndex + 1].formatStart : formatString.length;
-
-    this.writer.emitStringSpan(formatString, start, end);
-}
-
-/**
  * Emit a single formatted message.
  * @method
  * @param {Object} fmt the format entry we want to output
  */
 Emitter.prototype.emitFormatEntry = function (fmt) {
     const formatArray = fmt.formatterArray;
-    const formatString = fmt.formatString;
+    const tailingFormatSegmentArray = fmt.tailingFormatStringSegmentArray;
     let formatIndex = 0;
 
     while (this.block.tags[this.pos] !== LogEntryTags_MsgEndSentinal) {
         const tag = this.block.tags[this.pos];
-        
+
         if (tag === LogEntryTags_MsgLevel) {
             const data = this.block.data[this.pos];
-            this.writer.emitMsgStart();
+            this.writer.emitMsgStart(fmt.formatName);
 
             this.writer.emitFullString('level: ');
             this.writer.emitFullString(data.label);
@@ -1031,7 +1028,7 @@ Emitter.prototype.emitFormatEntry = function (fmt) {
                 this.advancePosition();
             }
 
-            this.emitFormatMsgSpan(formatArray, formatIndex, formatString);
+            this.writer.emitFullString(tailingFormatSegmentArray[formatIndex]);
             formatIndex++;
         }
     }
@@ -1150,10 +1147,12 @@ Emitter.prototype.processLoop = function () {
     }
 
     this.writer.drain();
-    this.blockList.clear();
-    this.blockList = null;
-    this.block = null;
-    this.pos = 0;
+    if (this.blockList !== null) {
+        this.blockList.clear();
+        this.blockList = null;
+        this.block = null;
+        this.pos = 0;
+    }
 }
 
 /**
@@ -1289,110 +1288,35 @@ function LoggerFactory(appName, ip) {
          */
 
         /**
+         * Generate a function that logs at the given level
+         */
+        function getMsgLogWLevelGenerator(desiredLevel) {
+            const fixedLevel = desiredLevel;
+            return function (fmt, ...args) {
+                try {
+                    const fmti = m_formatInfo.get(fmt);
+                    if (fmti === undefined) {
+                        throw new Error('Format name is not defined for this logger: ' + fmt);
+                    }
+
+                    m_memoryBlockList.logMessage(m_macroInfo, fixedLevel, fmti, args);
+                    checkAndQueueEmit();
+                }
+                catch (ex) {
+                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
+                }
+            }
+        }
+
+        /**
          * Log a messages at various levels.
          */
-        this.fatal = isLevelEnabledForLogging(LoggingLevels.FATAL, memoryLevel)
-            ? function (fmt, ...args) {
-                try {
-                    const fmti = m_formatInfo.get(fmt);
-                    if (fmti === undefined) {
-                        throw new Error('Format name is not defined for this logger: ' + fmt);
-                    }
-
-                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.FATAL, fmti, args);
-                    checkAndQueueEmit();
-                }
-                catch (ex) {
-                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
-                }
-            }
-            : doMsgLog_NOP;
-
-        this.error = isLevelEnabledForLogging(LoggingLevels.ERROR, memoryLevel)
-            ? function (fmt, ...args) {
-                try {
-                    const fmti = m_formatInfo.get(fmt);
-                    if (fmti === undefined) {
-                        throw new Error('Format name is not defined for this logger: ' + fmt);
-                    }
-
-                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.ERROR, fmti, args);
-                    checkAndQueueEmit();
-                }
-                catch (ex) {
-                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
-                }
-            }
-            : doMsgLog_NOP;
-
-        this.warn = isLevelEnabledForLogging(LoggingLevels.WARN, memoryLevel)
-            ? function (fmt, ...args) {
-                try {
-                    const fmti = m_formatInfo.get(fmt);
-                    if (fmti === undefined) {
-                        throw new Error('Format name is not defined for this logger: ' + fmt);
-                    }
-
-                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.WARN, fmti, args);
-                    checkAndQueueEmit();
-                }
-                catch (ex) {
-                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
-                }
-            }
-            : doMsgLog_NOP;
-
-        this.info = isLevelEnabledForLogging(LoggingLevels.INFO, memoryLevel)
-            ? function (fmt, ...args) {
-                try {
-                    const fmti = m_formatInfo.get(fmt);
-                    if (fmti === undefined) {
-                        throw new Error('Format name is not defined for this logger: ' + fmt);
-                    }
-
-                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.INFO, fmti, args);
-                    checkAndQueueEmit();
-                }
-                catch (ex) {
-                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
-                }
-            }
-            : doMsgLog_NOP;
-
-        this.debug = isLevelEnabledForLogging(LoggingLevels.DEBUG, memoryLevel)
-            ? function (fmt, ...args) {
-                try {
-                    const fmti = m_formatInfo.get(fmt);
-                    if (fmti === undefined) {
-                        throw new Error('Format name is not defined for this logger: ' + fmt);
-                    }
-
-                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.DEBUG, fmti, args);
-                    checkAndQueueEmit();
-                }
-                catch (ex) {
-                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
-                }
-            }
-            : doMsgLog_NOP;
-
-        this.trace = isLevelEnabledForLogging(LoggingLevels.TRACE, memoryLevel)
-            ? function (fmt, ...args) {
-                try {
-                    const fmti = m_formatInfo.get(fmt);
-                    if (fmti === undefined) {
-                        throw new Error('Format name is not defined for this logger: ' + fmt);
-                    }
-
-                    m_memoryBlockList.logMessage(m_macroInfo, LoggingLevels.TRACE, fmti, args);
-                    checkAndQueueEmit();
-                }
-                catch (ex) {
-                    process.stderr.write('Hard failure in logging -- ' + ex.toString() + '\n');
-                }
-            }
-            : doMsgLog_NOP;
-
+        this.fatal = isLevelEnabledForLogging(LoggingLevels.FATAL, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.FATAL) : doMsgLog_NOP;
+        this.error = isLevelEnabledForLogging(LoggingLevels.ERROR, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.ERROR) : doMsgLog_NOP;
+        this.warn = isLevelEnabledForLogging(LoggingLevels.WARN, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.WARN) : doMsgLog_NOP;
+        this.info = isLevelEnabledForLogging(LoggingLevels.INFO, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.INFO) : doMsgLog_NOP;
+        this.debug = isLevelEnabledForLogging(LoggingLevels.DEBUG, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.DEBUG) : doMsgLog_NOP;
+        this.trace = isLevelEnabledForLogging(LoggingLevels.TRACE, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.TRACE) : doMsgLog_NOP;
 
         /**
          * TODO: add conditional versions of these (e.g. traceOn(pred, fmt, args))
@@ -1615,17 +1539,15 @@ function createStdoutWriter() {
         emitFullString: function (str) {
             sb.push(str);
         },
-        emitStringSpan: function (str, start, end) {
-            sb.push(str.substr(start, end - start));
-        },
-        emitMsgStart: function () {
+        emitMsgStart: function (formatName) {
+            sb.push(formatName);
             sb.push('> ');
         },
         emitMsgEnd: function () {
             sb.push('\n');
         },
         needsToDrain: function () {
-            if (sb.length > 128) {
+            if (sb.length > 512) {
                 return true;
             }
 
