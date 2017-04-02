@@ -1607,34 +1607,33 @@ function extractUserSourceFile() {
  */
 function createStdoutWriter() {
     const process = require('process');
-    let sb = '';
+    let sb = [];
     return {
         emitChar: function (c) {
-            sb = sb + c;
+            sb.push(c);
         },
         emitFullString: function (str) {
-            sb = sb + str;
+            sb.push(str);
         },
         emitStringSpan: function (str, start, end) {
-            sb = sb + str.substr(start, end - start);
+            sb.push(str.substr(start, end - start));
         },
         emitMsgStart: function () {
-            sb = sb + '> ';
+            sb.push('> ');
         },
         emitMsgEnd: function () {
-            sb = sb + '\n';
+            sb.push('\n');
         },
         needsToDrain: function () {
-            if (sb.length > 2048) {
+            if (sb.length > 128) {
                 return true;
             }
 
             return false;
         },
         drain: function () {
-            let wb = sb;
-            sb = '';
-            process.stdout.write(wb);
+            process.stdout.write(sb.join(''));
+            sb.length = 0;
         }
     }
 }
