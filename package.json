@@ -1,11 +1,8 @@
 {
-  "name": "fastlogger",
-  "version": "1.0.0",
-  "description": "Temp repo for developing logger code.",
-  "main": "msg_format.js",
-  "dependencies": {
-    "eslint": "^3.18.0"
-  },
+  "name": "corelogger",
+  "version": "0.2.0",
+  "description": "Advanced logging code for Node.js.",
+  "main": "logger.js",
   "devDependencies": {
     "eslint": "^3.18.0",
     "eslint-config-standard": "^7.1.0",
