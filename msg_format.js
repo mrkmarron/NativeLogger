@@ -108,8 +108,8 @@ const TypeNameToFlagEnum = {
 /**
  * Get the enumeration tag for the type of value
  * @function
- * @param {*} value 
- * @return {number} 
+ * @param {*} value
+ * @return {number}
  */
 function typeGetIdTag(value) {
     return TypeNameToFlagEnum[toString.call(value)] || TypeNameEnum_Unknown;
@@ -257,7 +257,7 @@ function expandToJsonFormatter(jobj) {
  * @function
  * @param {string} fmtString the format string we are working on
  * @param {number} vpos the current position in the string
- * @returns {Object} the expando MsgFormatEntry  
+ * @returns {Object} the expando MsgFormatEntry
  */
 function extractExpandoSpecifier(fmtString, vpos) {
     if (fmtString.startsWith('##', vpos)) {
@@ -266,7 +266,7 @@ function extractExpandoSpecifier(fmtString, vpos) {
     else {
         let expando = s_expandoEntries.find(function (expando) { return fmtString.startsWith(expando.label, vpos); });
         if (!expando) {
-            throw new Error("Bad match in expando format string.");
+            throw new Error('Bad match in expando format string.');
         }
 
         return createMsgFormatEntry(expando, vpos, vpos + expando.label.length, -1, -1, -1);
@@ -278,7 +278,7 @@ function extractExpandoSpecifier(fmtString, vpos) {
  * @function
  * @param {string} fmtString the format string we are working on
  * @param {number} vpos the current position in the string
- * @returns {Object} the expando MsgFormatEntry  
+ * @returns {Object} the expando MsgFormatEntry
  */
 function extractArgumentFormatSpecifier(fmtString, vpos) {
     if (fmtString.startsWith('$$', vpos)) {
@@ -363,7 +363,7 @@ function extractArgumentFormatSpecifier(fmtString, vpos) {
  * @param {string} fmtString the raw format string
  * @param {number} maxArgPos the largest arg used in the format
  * @param {Array} fmtEntryArray the array of MsgFormatEntry objects
- * @param {string} initialFormatSegment the string that we want to emit at the start of the format 
+ * @param {string} initialFormatSegment the string that we want to emit at the start of the format
  * @param {Array} tailingFormatSegmentArray the strings that we want to emit in after each format specifier
  * @param {bool} areAllSingleSlotFormatters true of all the formatters use only a single slot
  * @returns {Object} our MsgFormat object
@@ -391,14 +391,11 @@ function extractMsgFormat(fmtName, fmtInfo) {
     let cpos = 0;
 
     if (typeof (fmtName) !== 'string') {
-        throw 'Name needs to be a string.'
+        throw new Error('Name needs to be a string.');
     }
 
-    let fmtString = undefined;
-    if (typeof (fmtInfo) === 'string') {
-        fmtString = fmtInfo;
-    }
-    else {
+    let fmtString = fmtInfo;
+    if (typeof (fmtInfo) !== 'string') {
         let typeid = typeGetIdTag(fmtInfo);
         if (typeid !== TypeNameEnum_JsArray && typeid !== TypeNameEnum_Object) {
             throw new Error('Format description options are string | object layout | array layout.');
@@ -581,7 +578,6 @@ AddGeneralValue_RemainingTypesCallTable[TypeNameEnum_TypedArray] = function (blo
 
 AddGeneralValue_RemainingTypesCallTable[TypeNameEnum_Unknown] = function (blockList, value, depth) { blockList.addTagOnlyEntry(LogEntryTags_OpaqueObject); };
 
-
 /**
  * Add an expanded object value to the log
  * @method
@@ -743,7 +739,7 @@ BlockList.prototype.logMessage = function (macroInfo, level, fmt, args) {
         }
         else {
             //TODO: remove this after we are done debugging a bit
-            assert(formatSpec.kind === FormatStringEntryKind_Basic || formatSpec.kind === FormatStringEntryKind_Compound, "No other options");
+            assert(formatSpec.kind === FormatStringEntryKind_Basic || formatSpec.kind === FormatStringEntryKind_Compound, 'No other options');
 
             if (formatEntry.argPosition >= args.length) {
                 //We hit a bad format value so rather than let it propigate -- report and move on.
@@ -766,7 +762,7 @@ BlockList.prototype.logMessage = function (macroInfo, level, fmt, args) {
                         this.addJsVarValueEntry(value)
                     }
                     else {
-                        (AddGeneralValue_RemainingTypesCallTable[typeid])(this, typeid, value, depth);
+                        (AddGeneralValue_RemainingTypesCallTable[typeid])(this, typeid, value, formatEntry.depth);
                     }
                 }
                 else {
@@ -792,9 +788,9 @@ BlockList.prototype.logMessage = function (macroInfo, level, fmt, args) {
  */
 function isLevelEnabledForWrite(cblock, cpos, trgtLevel) {
     //TODO: take this out later for performance but good initial sanity check
-    assert((cpos + 1 < cblock.count) ? cblock.tags[cpos + 1] : block.next.tags[0] === LogEntryTags_MsgLevel);
+    assert((cpos + 1 < cblock.count) ? cblock.tags[cpos + 1] : cblock.next.tags[0] === LogEntryTags_MsgLevel);
 
-    let mlevel = (cpos + 1 < cblock.count) ? cblock.data[cpos + 1] : block.next.data[0];
+    let mlevel = (cpos + 1 < cblock.count) ? cblock.data[cpos + 1] : cblock.next.data[0];
     return (mlevel.enum & trgtLevel.enum) === mlevel.enum;
 }
 
@@ -897,7 +893,7 @@ Emitter.prototype.emitJsString = function (str) {
 /**
  * Emit a simple var (JsVarValue tag)
  * @method
- * @param {Object} value  
+ * @param {Object} value
  */
 Emitter.prototype.emitSimpleVar = function (value) {
     if (value === undefined) {
@@ -937,7 +933,7 @@ Emitter.prototype.emitSpecialVar = function (tag) {
             this.writer.emitFullString('"<Array>"');
             break;
         default:
-            assert(false, "Unknown case in switch statement for special var emit.");
+            assert(false, 'Unknown case in switch statement for special var emit.');
             break;
     }
 }
@@ -1022,7 +1018,6 @@ Emitter.prototype.emitFormatEntry = function (fmt) {
                     else {
                         this.emitSpecialVar(tag);
                     }
-
                 }
 
                 this.advancePosition();
@@ -1188,8 +1183,8 @@ function doMsgLog_NOP(level, fmt, ...args) { ; }
  * @param {string} ip the ip address of the host
  */
 function LoggerFactory(appName, ip) {
-    //Since this will be exposed to the user we want to protect the state from accidental 
-    //modification. This state is common to all loggers and will be shared.
+    //Since this will be exposed to the user we want to protect the state from accidental modification.
+    //This state is common to all loggers and will be shared.
     const m_globalMacroInfo = {
         IP_ADDR: ip,
         APP_NAME: appName,
@@ -1263,10 +1258,10 @@ function LoggerFactory(appName, ip) {
          */
         this.incrementLogicalTime = function () { m_globalMacroInfo.LOGICAL_TIME++; }
 
-        this.getCurrentRequestId = function () { m_globalMacroInfo.REQUEST_ID; }
+        this.getCurrentRequestId = function () { return m_globalMacroInfo.REQUEST_ID; }
         this.setCurrentRequestId = function (requestId) { m_globalMacroInfo.REQUEST_ID = requestId; }
 
-        this.getCurrentCallbackId = function () { m_globalMacroInfo.CALLBACK_ID; }
+        this.getCurrentCallbackId = function () { return m_globalMacroInfo.CALLBACK_ID; }
         this.setCurrentCallbackId = function (callbackId) { m_globalMacroInfo.CALLBACK_ID = callbackId; }
 
         /**
@@ -1311,12 +1306,12 @@ function LoggerFactory(appName, ip) {
         /**
          * Log a messages at various levels.
          */
-        this.fatal = isLevelEnabledForLogging(LoggingLevels.FATAL, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.FATAL) : doMsgLog_NOP;
-        this.error = isLevelEnabledForLogging(LoggingLevels.ERROR, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.ERROR) : doMsgLog_NOP;
-        this.warn = isLevelEnabledForLogging(LoggingLevels.WARN, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.WARN) : doMsgLog_NOP;
-        this.info = isLevelEnabledForLogging(LoggingLevels.INFO, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.INFO) : doMsgLog_NOP;
-        this.debug = isLevelEnabledForLogging(LoggingLevels.DEBUG, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.DEBUG) : doMsgLog_NOP;
-        this.trace = isLevelEnabledForLogging(LoggingLevels.TRACE, memoryLevel) ? getMsgLogWLevelGenerator(LoggingLevels.TRACE) : doMsgLog_NOP;
+        this.fatal = isLevelEnabledForLogging(LoggingLevels.FATAL, m_memoryLogLevel) ? getMsgLogWLevelGenerator(LoggingLevels.FATAL) : doMsgLog_NOP;
+        this.error = isLevelEnabledForLogging(LoggingLevels.ERROR, m_memoryLogLevel) ? getMsgLogWLevelGenerator(LoggingLevels.ERROR) : doMsgLog_NOP;
+        this.warn = isLevelEnabledForLogging(LoggingLevels.WARN, m_memoryLogLevel) ? getMsgLogWLevelGenerator(LoggingLevels.WARN) : doMsgLog_NOP;
+        this.info = isLevelEnabledForLogging(LoggingLevels.INFO, m_memoryLogLevel) ? getMsgLogWLevelGenerator(LoggingLevels.INFO) : doMsgLog_NOP;
+        this.debug = isLevelEnabledForLogging(LoggingLevels.DEBUG, m_memoryLogLevel) ? getMsgLogWLevelGenerator(LoggingLevels.DEBUG) : doMsgLog_NOP;
+        this.trace = isLevelEnabledForLogging(LoggingLevels.TRACE, m_memoryLogLevel) ? getMsgLogWLevelGenerator(LoggingLevels.TRACE) : doMsgLog_NOP;
 
         /**
          * TODO: add conditional versions of these (e.g. traceOn(pred, fmt, args))
@@ -1412,7 +1407,7 @@ function LoggerFactory(appName, ip) {
 }
 
 /////////////////////////////
-//Code for creating and managing the logging system 
+//Code for creating and managing the logging system
 
 /**
  * Global variables for the logger factor and root logger -- lazily instantiated
@@ -1479,8 +1474,9 @@ module.exports = function (name, memoryLevel, writeLevel) {
 //helper is absolute path copied from path -- avoid neededing to require it
 function directIsAbsoluteW32(pth) {
     const len = pth.length;
-    if (len === 0)
+    if (len === 0) {
         return false;
+    }
 
     var code = pth.charCodeAt(0);
     if (code === 47/*/*/ || code === 92/*\*/) {
@@ -1491,8 +1487,9 @@ function directIsAbsoluteW32(pth) {
 
         if (len > 2 && pth.charCodeAt(1) === 58/*:*/) {
             code = pth.charCodeAt(2);
-            if (code === 47/*/*/ || code === 92/*\*/)
+            if (code === 47/*/*/ || code === 92/*\*/) {
                 return true;
+            }
         }
     }
     return false;
@@ -1519,7 +1516,7 @@ function extractUserSourceFile() {
             return frame.substring(frame.indexOf('(') + 1, frame.lastIndexOf('.js:') + 3);
         })
         .find(function (frame) {
-            return directIsAbsolute(frame) && frame.search('msg_format.js') == -1; //TODO: temp workaround while external module
+            return directIsAbsolute(frame) && frame.search('msg_format.js') === -1; //TODO: temp workaround while external module
         });
 }
 
@@ -1527,7 +1524,7 @@ function extractUserSourceFile() {
 //Code for various writer implementations
 
 /**
- * Create a basic console writer 
+ * Create a basic console writer
  */
 function createStdoutWriter() {
     const process = require('process');

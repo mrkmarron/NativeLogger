@@ -5,6 +5,8 @@
         "indent": 0,
         "space-before-function-paren": 0,
         "brace-style": 0,
-        "semi": 0
+        "semi": 0,
+        "camelcase": 0,
+        "operator-linebreak": 0
     }
 }
