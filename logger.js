@@ -1,6 +1,5 @@
 /*
-* This module provides the representation of our msg formats and provides
-* functionality for converting strings or objects into the format.
+* This module provides the core logging code for formatting and processing messages.
 */
 
 ////
@@ -1134,7 +1133,7 @@ Emitter.prototype.processLoop = function () {
 
         flush = this.writer.needsToDrain();
 
-        //if we need to flush then call the writer drain with a callback to us
+        //if we need to flush then call the writer drain
         if (flush) {
             flush = false;
             this.writer.drain();
@@ -1202,7 +1201,8 @@ function LoggerFactory(appName, ip) {
     let m_emitPending = false;
 
     //The writer to emit data from the writeBlockList -- default to console
-    const m_emitter = new Emitter(createStdoutWriter());
+    let cwriter = require('./writer').createStdoutWriter();
+    const m_emitter = new Emitter(cwriter);
 
     /**
      * Create a logger for a given module
@@ -1246,11 +1246,17 @@ function LoggerFactory(appName, ip) {
             }
             m_emitPending = true;
 
+            //TODO: temp set for immediate emit
+            m_memoryBlockList.processMsgsForWrite(m_writeLogLevel, m_writeBlockList, true);
+            m_emitter.emitBlockList(m_writeBlockList);
+            m_emitPending = false;
+            /*
             process.nextTick(function () {
                 m_memoryBlockList.processMsgsForWrite(m_writeLogLevel, m_writeBlockList, true);
                 m_emitter.emitBlockList(m_writeBlockList);
                 m_emitPending = false;
             });
+            */
         }
 
         /**
@@ -1516,43 +1522,6 @@ function extractUserSourceFile() {
             return frame.substring(frame.indexOf('(') + 1, frame.lastIndexOf('.js:') + 3);
         })
         .find(function (frame) {
-            return directIsAbsolute(frame) && frame.search('msg_format.js') === -1; //TODO: temp workaround while external module
+            return directIsAbsolute(frame) && frame.search('logger.js') === -1; //TODO: temp workaround while external module
         });
-}
-
-/////////////////////////////
-//Code for various writer implementations
-
-/**
- * Create a basic console writer
- */
-function createStdoutWriter() {
-    const process = require('process');
-    let sb = [];
-    return {
-        emitChar: function (c) {
-            sb.push(c);
-        },
-        emitFullString: function (str) {
-            sb.push(str);
-        },
-        emitMsgStart: function (formatName) {
-            sb.push(formatName);
-            sb.push('> ');
-        },
-        emitMsgEnd: function () {
-            sb.push('\n');
-        },
-        needsToDrain: function () {
-            if (sb.length > 512) {
-                return true;
-            }
-
-            return false;
-        },
-        drain: function () {
-            process.stdout.write(sb.join(''));
-            sb.length = 0;
-        }
-    }
 }

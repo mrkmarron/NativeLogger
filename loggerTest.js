@@ -1,13 +1,8 @@
-let logger = require('./msg_format')('loggerTest', 'DEBUG', 'ALL');
+let logger = require('./logger')('loggerTest', 'DEBUG', 'ALL');
 
-//logger.enableSubLogger('submoduleTest');
-require('./submoduleTest.js');
+    let writer = require('./writer').createStringWriter();
+    logger.updateEmitMethod(writer);
 
-////
-//Create various formats
-logger.addFormat('fmt_g1', 'msg is ${0:s} value is ${1:n} at time #wall_time');
-
-////
-//Log some data
-logger.debug('fmt_g1', 'ok', 5);
-
+        logger.addFormat('fmt_lm1', 'hello world');
+        logger.debug('fmt_lm1');
+        
