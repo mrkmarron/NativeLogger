@@ -1,8 +1,131 @@
-\documentclass[twocolumn,10pt]{article}
+\documentclass[preprint]{sig-alternate-05-2015}
+
+\usepackage{times}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{xspace}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{balance}
+\usepackage{paralist}
+\usepackage{graphicx,color}
+
+\usepackage{subfig}
+
+\usepackage{listings} 
+\usepackage{color} %use color
+
+\newtheorem{observation}{Observation}
+
+\definecolor{darkgray}{rgb}{.4,.4,.4}
+\definecolor{purple}{rgb}{0.65, 0.12, 0.82}
+
+%define Javascript language
+\lstdefinelanguage{JavaScript}{
+keywords={typeof, new, true, false, catch, function, return, null, undefined, try, catch, switch, var, if, in, while, do, else, case, break},
+keywordstyle=\color{blue}\bfseries,
+ndkeywords={class, export, boolean, throw, implements, import, this},
+ndkeywordstyle=\color{darkgray}\bfseries,
+identifierstyle=\color{black},
+sensitive=false,
+comment=[l]{//},
+morecomment=[s]{/*}{*/},
+commentstyle=\color{purple}\ttfamily,
+stringstyle=\color{red}\ttfamily,
+morestring=[b]',
+morestring=[b]"
+}
+ 
+\lstset{
+language=JavaScript,
+extendedchars=true,
+basicstyle=\footnotesize\ttfamily,
+showstringspaces=false,
+showspaces=false,
+numbers=left,
+numberstyle=\footnotesize,
+numbersep=9pt,
+tabsize=2,
+breaklines=true,
+showtabs=false,
+captionpos=b,
+xleftmargin=0.5cm
+}
+
+\usepackage[sort&compress]{natbib}
+
+% hyperref redefines a number of macros, so it should be last.  Empirically,
+% doing so eliminates compiler warnings.
+\usepackage[bookmarks, colorlinks]{hyperref}
+
+\newcommand{\projn}{\textsc{TurboLog}\xspace}
+\newcommand{\ourtitle}{Language Level Logging} 
+
+\newcommand{\todo}[1]{{\color{red}#1}}
+
+\newcommand{\eg}{\hbox{\emph{e.g.}}\xspace}
+\newcommand{\ie}{\hbox{\emph{i.e.}}\xspace}
+\newcommand{\etc}{\hbox{\emph{etc.}}\xspace}
+
+\newcommand\bench[1]{\textsf{\small #1}}
+\newcommand{\niceunitkloc}{\,{\small kloc}\xspace}
+\newcommand{\niceunitkb}{\,{\small KB}\xspace}
+\newcommand{\niceunitmb}{\,{\small MB}\xspace}
+\newcommand{\niceunitsec}{\,s\xspace}
+\newcommand{\niceunitpct}{\,\%\xspace}
+
+\newcommand{\codelines}[1]{#1\,kloc\xspace} 
+
+\newcommand{\console}[1]{\texttt{\small #1}}
+
+%% Document-specific hyperref options
+\hypersetup{
+pdftitle={\ourtitle},
+    plainpages=false,
+    linkcolor=blue, % Overriding these colors to black is somewhat unfortunate 
+    %citecolor=black, % b/c the defaults are useful in color.
+    citecolor=blue, % b/c the defaults are useful in color.
+    filecolor=black,
+    urlcolor=black,
+    pdfpagelabels
+}
+\def\sectionautorefname{Section}
+\def\subsectionautorefname{Section}
 
 \begin{document}
 
-\title{Language Level Logging} \author{Mark Marron}
+\toappear{Draft Document -- Do NOT Redistribute.}
+
+% Copyright
+%\setcopyright{acmcopyright}
+%\setcopyright{acmlicensed}
+%\setcopyright{rightsretained}
+%\setcopyright{usgov}
+%\setcopyright{usgovmixed}
+%\setcopyright{cagov}
+%\setcopyright{cagovmixed}
+
+% DOI
+\doi{yyy}
+
+% ISBN
+\isbn{xxx}
+
+%Conference
+\conferenceinfo{TBD}{'17 TBD}
+\acmPrice{\$15.00}
+
+\title{\ourtitle}
+
+\numberofauthors{1}
+\author{
+% 1st. author
+Mark Marron\\
+       \affaddr{Microsoft Research, USA}\\
+       \email{marron@microsoft.com}
+}
+
 \maketitle
 
 \begin{abstract} 
@@ -27,7 +150,18 @@ performance, but is available as a library for Node.js hosted JavaScript
 applictions.
 \end{abstract}
 
+\category{CR-number}{subcategory}{third-level}
+
+% general terms are not compulsory anymore,
+% you may leave them out
+\terms
+term1, term2
+
+\keywords
+keyword1, keyword2
+
 \section{Introduction} 
+\label{sec:intro}
 Logging has always been a important tool for software developers in
 understanding their applications. However, as DevOps oriented workflows have
 become more prevelent, logging is becoming an even larger consideration when
@@ -40,22 +174,6 @@ dashboard format for developers. The additional value provided by these
 dashboards and the ability to quickly act on this data makes the inclusion of
 rich logging data an integral part of an applications development.
 
-%Existing logging library implementations, as provided in core or third-party libraries, are unable 
-%to satifactorially meet the demands of logging in moden applications including:
-%\begin{enumerate}
-%\item Parasitic costs of logging statements in the code but disabled at runtime including tatements 
-%needed for generating debug logs.
-%\item Costs of writing data to the log in general and in particular data, such as dates or JSON objects, 
-%which require non-trival formatting to emit.
-%\item Tension between the desire to generate detailed logs when an error occours vs. the desire 
-%to avoid logging large amounts of uninteresting data.
-%\item Difficult mergeing data logged from multiple modules in an application in a 
-%way that is automatically parsable to use in a monitoring dashboard.
-%\end{enumerate}
-%As a result developers must use existing libraries with care to limit undersireable perfomance impacts, 
-%direct logging output to the appropriate channels, and figure out how to effectively parse the data 
-%that is written from various sources. Consider the following sample JavaScript code:
-
 Existing logging library implementations, as provided via core or third party
 libraries, are unable to satifactorially meet the demands of logging in moden
 applications. As a result developers must use existing libraries with care to
@@ -65,27 +183,11 @@ out how to effectively parse the data that is written from various sources.
 Consider the following sample JavaScript code which illustrates a number of
 concrete issues encountered by Node.js~\cite{Node} developers today.
 
-%%TODO add nice code environment here
-\noindent
-{\texttt
-const logger = require('winston'); \\
-logger.setTransport("/tmp/logs/log.txt"); \\
-function foo(name, flag) \{ \\
-    console.log("Hello"); \\
-    logger.info("World"); \\
-    for(var i = 0; i < 1000; ++i) \{ \\
-        logger.debug(`Data = \$\{  \{ nval: name, cval: i \}  \}`); \\
-        ...\\
-    \} \\
-    \\
-    const ok = check(name, flag);\\
-    \\
-    logger.info(`check(\$\{name\}, \$\{flag\}) is \$\{ok\}`);\\
-    if(!ok) \{\\
-        logger.warn("Something went wrong...");\\
-    \}\\
-\}
-}
+\begin{figure*}[t]
+\lstinputlisting[language=JavaScript]{introExample.js}
+\label{sec:introExample}
+\caption{Example logging usage in JavaScript.}
+\end{figure*}
 
 The first is the challenge of different loggers being used in various parts of
 the code in this case \texttt{console.log} writing to the \texttt{stdout} and a
@@ -164,32 +266,8 @@ performance evaluations.
 \end{itemize}
 
 \section{Design Goals}
-
-The major issues this proposal is intended to address are:
-
-\noindent
-Lack of high performance logging primitives and fundamental logging challenges.
-\begin{enumerate}
- \item Cost of writing data to the log -- particularly with data formatted via 
-    `util.inspect` and info such as timestamps.
- \item Ongoing tension between log detail when triaging issues and cost of logging 
-    large amounts of 'uninteresting' data.
-\item Parasitic costs of disabled logging statements which still execute code to 
-    generate dead logging data (e.g., constructing unused strings).
-\item Compiler optimizations of both enabled and disabled logging statements.
-\end{enumerate}
-
-\noindent
-Challenges integrating log data from different sources and difficulty in post processing.
-\begin{enumerate}
-\item Difficulty in specifying uniform and appropriate logging levels across 
-    multiple packages -- and quite possibly multiple logging frameworks.
-\item Difficulty in ensuring all logging data is written to a consistent location 
-    across multiple packages -- and quite possibly multiple logging frameworks.
-\item Correlating fundamental information such as  
-    transaction ids, such as async context and HTTP requests, and to log relevant 
-    events in the core libraries with user logging data -- same for performance info.
-\end{enumerate}
+\label{sec:design}
+\input{design}
 
 \section{Language Level Logging}
 
@@ -201,5 +279,16 @@ Challenges integrating log data from different sources and difficulty in post pr
 
 \section{Notes} log output scheduling -- critical for devops/cloud integration
 -- should be background task
+
+
+\balance
+
+{
+\raggedright 
+
+\bibliographystyle{abbrv}
+\bibliography{bibfile} 
+}
+
 
 \end{document}

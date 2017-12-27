@@ -1,0 +1,28 @@
+% !TeX root = LanguageLevelLogging.tex
+
+The major issues this proposal is intended to address are:
+
+\noindent
+Lack of high performance logging primitives and fundamental logging challenges.
+\begin{enumerate}
+ \item Cost of writing data to the log -- particularly with data formatted via 
+    `util.inspect` and info such as timestamps.
+ \item Ongoing tension between log detail when triaging issues and cost of logging 
+    large amounts of 'uninteresting' data.
+\item Parasitic costs of disabled logging statements which still execute code to 
+    generate dead logging data (e.g., constructing unused strings).
+\item Compiler optimizations of both enabled and disabled logging statements.
+\end{enumerate}
+
+\noindent
+Challenges integrating log data from different sources and difficulty in post processing.
+\begin{enumerate}
+\item Difficulty in specifying uniform and appropriate logging levels across 
+    multiple packages -- and quite possibly multiple logging frameworks.
+\item Difficulty in ensuring all logging data is written to a consistent location 
+    across multiple packages -- and quite possibly multiple logging frameworks.
+\item Correlating fundamental information such as  
+    transaction ids, such as async context and HTTP requests, and to log relevant 
+    events in the core libraries with user logging data -- same for performance info.
+\end{enumerate}
+
