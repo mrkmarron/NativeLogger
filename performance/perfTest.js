@@ -1,4 +1,4 @@
-let logger = require('./msg_format')('loggerTest', 'DEBUG', 'ALL');
+let logger = require('../logger')('loggerTest', 'DEBUG', 'ALL');
 let pino = require('pino')({extreme: true});
 
 const iterCount = 100000;
