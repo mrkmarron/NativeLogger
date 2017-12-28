@@ -1,4 +1,24 @@
 % !TeX root = LanguageLevelLogging.tex
+This section describes opportunities, using language, runtime, or compiler support, to address 
+general challenges surrounding logging outlined in \autoref{sec:intro}. We can roughly divide 
+these into two classes -- performance oriented and functionality oriented. 
+
+\subsection{Logging Performance}
+\label{subsec:performancedesign}
+
+\begin{design}
+The cost of a disabled logging statement, one that is at a logging level that is not enabled, should 
+have zero-cost at runtime. This includes both the direct cost of the logging action and the indirect cost 
+of of building a format string and processing any arguments. 
+\end{design}
+
+For logging frameworks that are included as libraries the compiler/JIT does have a deep understanding 
+of the enabled/disabled semantics of the logger and, in general, will not be able to fully eliminate 
+the dead-code associated with disabled logging statements.
+
+
+
+
 
 The major issues this proposal is intended to address are:
 
@@ -13,6 +33,9 @@ Lack of high performance logging primitives and fundamental logging challenges.
     generate dead logging data (e.g., constructing unused strings).
 \item Compiler optimizations of both enabled and disabled logging statements.
 \end{enumerate}
+
+\subsection{Logging Functionality}
+\label{subsec:functionalitydesign}
 
 \noindent
 Challenges integrating log data from different sources and difficulty in post processing.
