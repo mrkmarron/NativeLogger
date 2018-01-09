@@ -7,14 +7,31 @@ these into two classes -- performance oriented and functionality oriented.
 \label{subsec:performancedesign}
 
 \begin{design}
-The cost of a disabled logging statement, one that is at a logging level that is not enabled, should 
-have zero-cost at runtime. This includes both the direct cost of the logging action and the indirect cost 
+The cost of a \textbf{disabled logging} statement, one that is at a logging level that is disabled, should 
+have \textbf{zero-cost} at runtime. This includes both the direct cost of the logging action and the indirect cost 
 of of building a format string and processing any arguments. 
 \end{design}
+For logging frameworks that are included as libraries the compiler/JIT does not, in general, have any deep understanding 
+of the enabled/disabled semantics of the logger. As a result it will not be able to fully eliminate dead-code associated 
+with disabled logging statements and will pay an, individually small but widespread, parasitic cost for these disabled logging 
+statements. These costs can be very difficult to diagnose, as they are widely dispersed and individually small, but can add 
+up to several percentage points of application runtime.
 
-For logging frameworks that are included as libraries the compiler/JIT does have a deep understanding 
-of the enabled/disabled semantics of the logger and, in general, will not be able to fully eliminate 
-the dead-code associated with disabled logging statements.
+To avoid these parasitic costs we propose including logging as a set of intrinsics included in the specification of the 
+programming language or, if that is not possible, adding compiler/JIT specializations. Languages with macros provide a 
+simple limited form of this support by allowing for a compile time flag to completely eliminate disabled logging code. However, 
+this solution is limited to asdf...
+
+
+--check for potential stateful effects in log statements
+
+\begin{design}
+The cost of an enabled logging statement has two components -- (1) the cost to compute the set of arguments to the 
+log statement and (2) the cost to write this data into the log. The cost of computing the argument values is, in general unavoidable, 
+and must be done on the hot path of execution. However, the cost of (2) should be reduced and/or moved off hot path as much 
+as possible.
+\end{design}
+
 
 
 
