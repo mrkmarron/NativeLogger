@@ -3,3 +3,10 @@ node_modules/
 
 papers/languageLevelLogging/*.pdf
 papers/**/*.synctex.gz
+papers/**/*.aux
+papers/**/*.bbl
+papers/**/*.log
+papers/**/*.out
+papers/**/*.blg
+papers/**/*.fls
+papers/**/*.fdb_latexmk
